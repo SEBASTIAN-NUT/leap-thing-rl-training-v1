@@ -264,8 +264,14 @@ def main() -> None:
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="checkpoints",
-        help="Where to save the checkpoints",
+        default=None,
+        help=(
+            "Where to save the checkpoints. Defaults to "
+            "checkpoints/<run start time>, matching the older runs' layout "
+            "(checkpoints/2026_06_11_095624/ etc.) -- without this, every "
+            "run's checkpoints and tensorboard log dump flat into the same "
+            "checkpoints/ directory, mixing unrelated runs together."
+        ),
     )
     parser.add_argument("--num_timesteps", type=int, default=150000000)
     parser.add_argument("--env", type=str, default="joystick", help="env")
@@ -287,10 +293,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    start_time = datetime.now()
+    if args.output_dir is None:
+        args.output_dir = f"checkpoints/{start_time.strftime('%Y_%m_%d_%H%M%S')}"
+
     runner = LeapThingRunner(args)
 
-    start_time = datetime.now()
     print(f"[Train] Start:   {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"[Train] Output:  {args.output_dir}")
 
     runner.train()
 
