@@ -4,6 +4,7 @@ import argparse
 import functools
 import json
 import os
+import subprocess
 from datetime import datetime
 
 # Persistent JAX/XLA compilation cache: without this, every fresh process
@@ -178,6 +179,84 @@ class LeapThingRunner(BaseRunner):
             print(f"STEP: {num_steps} metrics: {metrics}")
         print("-----------")
 
+    def _write_run_metadata(self) -> None:
+        """Dump the exact config this run used into output_dir, as both a
+        machine-readable JSON (for later programmatic comparison/filtering
+        across many runs) and a short human-readable README.md generated
+        from it. Written automatically -- no prose to keep up to date by
+        hand. Includes the git commit hash so a result folder can always be
+        traced back to the exact code version that produced it, which
+        matters given how often thing_walk.py/runner.py have changed."""
+        try:
+            commit = (
+                subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                    stderr=subprocess.DEVNULL,
+                )
+                .decode()
+                .strip()
+            )
+            dirty = (
+                subprocess.call(
+                    ["git", "diff", "--quiet"],
+                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                    stderr=subprocess.DEVNULL,
+                )
+                != 0
+            )
+        except Exception:
+            commit, dirty = "unknown (not a git repo or git unavailable)", None
+
+        def to_plain(value):
+            if hasattr(value, "to_dict"):
+                return value.to_dict()
+            return value
+
+        metadata = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "git_commit": commit,
+            "git_dirty": dirty,
+            "cli_args": vars(self.args),
+            "env_config": to_plain(self.env.config if hasattr(self.env, "config") else self.env_config),
+            "ppo_training_params": {
+                k: v for k, v in self.ppo_training_params.items()
+            },
+        }
+
+        os.makedirs(self.output_dir, exist_ok=True)
+        json_path = os.path.join(self.output_dir, "run_config.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, default=str, ensure_ascii=False)
+
+        readme_lines = [
+            "# Run config",
+            "",
+            f"- Started: {metadata['timestamp']}",
+            f"- Git commit: `{commit}`"
+            + (" (uncommitted changes present)" if dirty else ""),
+            "",
+            "## CLI args",
+            "",
+        ]
+        for k, v in metadata["cli_args"].items():
+            readme_lines.append(f"- `{k}`: {v}")
+        readme_lines += ["", "## PPO training params", ""]
+        for k, v in metadata["ppo_training_params"].items():
+            readme_lines.append(f"- `{k}`: {v}")
+        readme_lines += [
+            "",
+            "## Env config",
+            "",
+            "See `run_config.json` (`env_config`) for the full nested config "
+            "actually used (after config_overrides were applied).",
+            "",
+        ]
+        with open(os.path.join(self.output_dir, "README.md"), "w", encoding="utf-8") as f:
+            f.write("\n".join(readme_lines))
+
+        print(f"[Train] Wrote run_config.json and README.md to {self.output_dir}")
+
     def train(self) -> None:
         """Override train() to set num_envs=256 (avoids GPU OOM from the
         mesh-based fingertip collision SAT computation at the default 8192)
@@ -201,16 +280,22 @@ class LeapThingRunner(BaseRunner):
         # finished end-to-end (~90s to checkpoint+ONNX) -- as the new
         # baseline to test with all three real fixes applied.
         self.ppo_training_params["num_envs"] = 8192
-        # Lightest-possible config to get a successful run first.
-        # acting.Evaluator.generate_eval_unroll scans for
-        # episode_length // action_repeat steps (1000 here) -- 50x longer
-        # than the training rollout's unroll_length (20) -- and its
-        # jax.jit(donate_argnums=...)-wrapped scan body is pathologically
-        # slow to compile under this jax/mjx version (confirmed: this is
-        # the dominant cost behind multi-hour compiles). run_evals=False
-        # skips brax's Evaluator entirely (verified safe in train.py:786,
-        # 848-855 -- metrics just falls back to training_metrics, no crash).
-        self.ppo_training_params["run_evals"] = False
+        # run_evals re-enabled: it was disabled because
+        # acting.Evaluator.generate_eval_unroll's scan (length =
+        # episode_length // action_repeat = 1000, 50x the training
+        # rollout's unroll_length=20) appeared pathologically slow to
+        # compile. That was almost certainly just a symptom of the real
+        # root cause found later this session (a stray JAX_DISABLE_JIT=1
+        # env var making every jax.jit/lax.scan fall back to eager
+        # per-iteration execution) -- not an inherent property of the
+        # eval scan itself. With JIT actually enabled, this should compile
+        # in the same few-second range as everything else now does.
+        # eval/episode_reward is also the metric that actually matters for
+        # research purposes (real task performance from dedicated eval
+        # episodes) vs. training/* (PPO's internal optimization losses,
+        # useful for debugging divergence but not for judging how well the
+        # policy walks).
+        self.ppo_training_params["run_evals"] = True
 
         # unroll_length: left at the PPO config default (20) -- shrinking it
         # only ever shrank the compile-time blowup proportionally, it never
@@ -229,6 +314,8 @@ class LeapThingRunner(BaseRunner):
 
         self.ppo_training_params["num_timesteps"] = self.num_timesteps
         print(f"PPO params: {self.ppo_training_params}")
+
+        self._write_run_metadata()
 
         train_fn = functools.partial(
             ppo.train,
