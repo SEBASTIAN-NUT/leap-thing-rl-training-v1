@@ -1,0 +1,22 @@
+# Large/regenerable directories
+Open_Duck_Playground/
+checkpoints/
+**/checkpoints/
+*.venv/
+.venv/
+
+# Compiled artifacts / cache
+__pycache__/
+*.pyc
+*.onnx
+*.pkl
+
+# Logs and ad-hoc CSV exports (regenerable from training)
+*.log
+*.csv
+
+# tmp
+.tmp/
+Open_Duck_Mini/
+Open_Duck_Mini_Runtime/
+Open_Duck_reference_motion_generator/

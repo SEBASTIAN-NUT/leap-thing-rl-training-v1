@@ -1,0 +1,43 @@
+#this is converted into leap_hand ver.
+<mujoco model="scene">
+    <include file="leap_thing.xml"/>
+
+    <visual>
+        <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+        <rgba haze="0.15 0.25 0.35 1"/>
+        <global azimuth="160" elevation="-20"/>
+    </visual>
+    <!-- 
+    <asset>
+        <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+        <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+            markrgb="0.8 0.8 0.8" width="300" height="300"/>
+        <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    </asset> -->
+
+    <!-- <worldbody>
+        <body name="floor">
+            <light pos="0 0 3.5" dir="0 0 -1" directional="true"/>
+            <geom name="floor" size="0 0 0.05" pos="0 0 0" type="plane" material="groundplane" contype="1"
+                conaffinity="1" priority="1"/>
+        </body>
+    </worldbody> -->
+
+
+    <asset>
+        <texture type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/>
+        <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="1 1 1" rgb2="1 1 1" markrgb="0 0 0"
+            width="300" height="300"/>
+        <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0"/>
+    </asset>
+
+    <worldbody>
+        <body name="floor">
+            <geom name="floor" size="0 0 0.01" type="plane" material="groundplane" contype="1" conaffinity="1"
+                priority="1" friction="0.6" condim="3"/>
+        </body>
+    </worldbody>
+    <keyframe>
+        <key name="home" qpos="0.0165 0.0052 0.3751 0.9999 0.0052 -0.0147 -0.0004 0.3220 -0.3350 1.1318 0.3684 0.3220 -0.0000 1.2992 -0.3660 0.2075 0.5235 1.0481 0.0434 1.8131 -0.3490 -0.4700 0.5115"/>
+    </keyframe>
+</mujoco>
