@@ -62,9 +62,15 @@ class CommandResponseCheck(MJInferBase):
         self.commands = [0.0, 0.0, 0.0]
 
     def get_obs(self, data, commands) -> np.ndarray:
-        gyro = self.get_gyro(data)
-        gravity = self.get_gravity(data)
-
+        # No gyro/gravity here: thing_walk.py's actual policy observation
+        # ("state", what the exported ONNX model was trained on) excludes
+        # IMU-derived values entirely -- the real LEAP hand has no IMU, only
+        # motors. mujoco_infer.py's get_obs() (which this was copied from)
+        # still includes them, a leftover from before that design change --
+        # confirmed as a real bug here via a concrete symptom: onnxruntime
+        # rejecting a 109-dim observation against the model's expected
+        # 103-dim input (103 = 3 + 16*6 + 4, matching thing_walk.py exactly;
+        # 109 = 103 + 3(gyro) + 3(gravity)).
         joint_angles = self.get_actuator_joints_qpos(data.qpos)
         joint_backlash = self.get_actuator_backlash_qpos(data.qpos)
         for i in self.backlash_idx_to_add:
@@ -76,8 +82,6 @@ class CommandResponseCheck(MJInferBase):
 
         obs = np.concatenate(
             [
-                gyro,
-                gravity,
                 np.array(commands, dtype=np.float64),
                 joint_angles - self.default_actuator,
                 joint_vel * DOF_VEL_SCALE,
@@ -99,7 +103,14 @@ class CommandResponseCheck(MJInferBase):
         yaw = np.arctan2(2 * (w * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
         return float(x), float(y), float(yaw)
 
-    def run(self, phases, phase_duration, show_viewer=True):
+    def run(self, phases, phase_duration, show_viewer=True, policy_warmup=0.0):
+        """policy_warmup: seconds to hold the home pose (policy disabled,
+        motor_targets pinned to default_actuator) before letting the
+        policy drive at all. Set > 0 to isolate "is the home pose itself
+        physically stable" from "is the (possibly undertrained) policy
+        producing bad actions" when something looks unstable -- mirrors
+        mujoco_infer.py's policy_enabled-starts-False safety check, which
+        this script originally lacked (it ran the policy from frame 1)."""
         results = []
 
         def loop(viewer):
@@ -120,6 +131,11 @@ class CommandResponseCheck(MJInferBase):
                     counter += 1
 
                     if counter % self.decimation == 0:
+                        if self.data.time < policy_warmup:
+                            self.motor_targets = self.default_actuator.copy()
+                            self.prev_motor_targets = self.motor_targets.copy()
+                            self.data.ctrl[:] = self.motor_targets
+                            continue
                         obs = self.get_obs(self.data, self.commands)
                         action = np.asarray(self.policy.infer(obs))
 
@@ -230,6 +246,16 @@ def main():
         action="store_true",
         help="Run headless (no MuJoCo window), just print measured numbers",
     )
+    parser.add_argument(
+        "--policy_warmup",
+        type=float,
+        default=0.0,
+        help=(
+            "Sim seconds to hold the home pose before the policy takes "
+            "over. Use e.g. 2.0 to check whether the home pose itself is "
+            "physically stable, isolated from the policy."
+        ),
+    )
     args = parser.parse_args()
 
     fractions = [float(f) for f in args.fractions.split(",") if f != ""]
@@ -237,7 +263,12 @@ def main():
     phases = build_phases(args.vx_max, args.vy_max, args.yaw_max, fractions, axes)
 
     checker = CommandResponseCheck(args.model_path, args.onnx_model_path)
-    checker.run(phases, args.phase_duration, show_viewer=not args.no_viewer)
+    checker.run(
+        phases,
+        args.phase_duration,
+        show_viewer=not args.no_viewer,
+        policy_warmup=args.policy_warmup,
+    )
 
 
 if __name__ == "__main__":

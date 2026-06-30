@@ -80,8 +80,15 @@ Naming Conventions
        heavier op for JAX to batch/trace); pyramidal approximates the same
        friction behavior with a cheaper linear cone and is what most
        mjx_playground robots (e.g. Go1) use for training throughput. -->
-  <option integrator="implicitfast" cone="pyramidal" impratio="100"
-    solver="CG" iterations="4" ls_iterations="4" tolerance="1e-6">
+  <!-- integrator="Euler" + iterations=3 (berkeley_humanoid reference
+       exactly) was tested and made things WORSE for this model (qacc grew
+       to 1e8-1e9, vs 4.3e4 with the settings below) -- the reference robot's
+       mass/inertia/joint-damping distribution doesn't transfer directly.
+       Reverted to implicitfast + more iterations, keeping the solimp
+       softening below (which DID help). Lesson: copy reference settings as
+       a starting hypothesis, but verify each one empirically rather than
+       trusting the whole bundle. -->
+  <option integrator="implicitfast" solver="CG" iterations="20" ls_iterations="10">
     <flag eulerdamp="disable"/>
   </option>
 
@@ -114,7 +121,11 @@ Naming Conventions
          prevents the reduced-iteration CG solver from converging on an
          ill-conditioned constraint). 0.02s is MuJoCo's own default and is
          safely above the 2*sim_dt minimum. -->
-    <geom solimp="0.999 0.999 0.001 0.0001 1" solref="0.02 1" friction=".2" contype="0" conaffinity="0"/>
+    <!-- solimp matches mujoco_playground go1's foot-contact geom
+         (0.9 0.95 0.023) instead of near-rigid 0.999 0.999 0.001, which
+         exploded to qacc in the millions in repeated testing. solref left
+         at MuJoCo default (0.02 1), already matching reference. -->
+    <geom solimp="0.9 0.95 0.023" friction=".2" contype="0" conaffinity="0"/>
 
     <!-- actuator defaults -->
     <position kp="3.0" kv="0.01" />

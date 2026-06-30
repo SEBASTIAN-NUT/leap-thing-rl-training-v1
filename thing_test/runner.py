@@ -169,6 +169,27 @@ class LeapThingRunner(BaseRunner):
         KeyError right as training finishes."""
         for metric_name, metric_value in metrics.items():
             self.writer.add_scalar(metric_name, metric_value, num_steps)
+        # Diagnostic: tensorboardX silently warns "NaN or Inf found in input
+        # tensor" without naming the offending metric. Name it explicitly so
+        # we can tell a real instability apart from an expected NaN (e.g. a
+        # std/min/max stat over zero samples early in training).
+        import math
+
+        bad_metrics = {}
+        for metric_name, metric_value in metrics.items():
+            try:
+                v = float(metric_value)
+            except (TypeError, ValueError):
+                continue
+            if math.isnan(v) or math.isinf(v):
+                bad_metrics[metric_name] = v
+        if bad_metrics:
+            print(f"[NaN/Inf CHECK] step={num_steps} offending metrics: {bad_metrics}")
+        length_metrics = {
+            k: v for k, v in metrics.items() if "length" in k or "steps" in k
+        }
+        if length_metrics:
+            print(f"[EPISODE LENGTH CHECK] step={num_steps} {length_metrics}")
         print("-----------")
         if "eval/episode_reward" in metrics:
             print(
@@ -296,6 +317,25 @@ class LeapThingRunner(BaseRunner):
         # useful for debugging divergence but not for judging how well the
         # policy walks).
         self.ppo_training_params["run_evals"] = True
+
+        # entropy_cost/reward_scaling: web research on the policy_dist
+        # std-collapse + kl_mean-explosion pattern seen in this project's
+        # training runs (min_std reaching ~1e-3 while kl_mean reaches
+        # 1e13-1e16) points to the policy's action std shrinking too far,
+        # which makes KL divergence blow up for even tiny mean shifts.
+        # mujoco_playground's own DM-Control-style defaults use
+        # entropy_cost=1e-2 and reward_scaling=10.0; BerkeleyHumanoid's
+        # preset gives us entropy_cost=0.005 and reward_scaling=1.0, both
+        # lower -- raising them to the documented defaults should keep more
+        # exploration noise in the policy (preventing premature std
+        # collapse) and better match the value function's expected scale.
+        self.ppo_training_params["entropy_cost"] = 0.01
+        # reward_scaling: keep at 1.0 (default). 10.0 is the mujoco_playground
+        # recommendation for environments with SMALL per-step rewards (~0.01).
+        # Our alive=20.0 per step is already large, so scaling by 10 would push
+        # value targets to ~200,000/episode, destabilizing the value function.
+        # (It also made eval/episode_reward display 10x smaller, hiding learning.)
+        self.ppo_training_params["reward_scaling"] = 1.0
 
         # unroll_length: left at the PPO config default (20) -- shrinking it
         # only ever shrank the compile-time blowup proportionally, it never

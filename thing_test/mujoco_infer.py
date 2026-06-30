@@ -57,9 +57,11 @@ class MjInfer(MJInferBase):
         self.saved_obs = []
 
     def get_obs(self, data, commands) -> np.ndarray:
-        gyro = self.get_gyro(data)
-        gravity = self.get_gravity(data)
-
+        # No gyro/gravity: thing_walk.py's actual policy observation
+        # ("state") excludes IMU-derived values -- the real LEAP hand has
+        # no IMU, only motors. This was a leftover from before that design
+        # change (confirmed as a real bug: onnxruntime rejects a 109-dim
+        # obs against the model's expected 103-dim input).
         joint_angles = self.get_actuator_joints_qpos(data.qpos)
         joint_backlash = self.get_actuator_backlash_qpos(data.qpos)
         for i in self.backlash_idx_to_add:
@@ -72,8 +74,6 @@ class MjInfer(MJInferBase):
 
         obs = np.concatenate(
             [
-                gyro,
-                gravity,
                 np.array(commands, dtype=np.float64),
                 joint_angles - self.default_actuator,
                 joint_vel * DOF_VEL_SCALE,
