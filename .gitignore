@@ -20,3 +20,4 @@ __pycache__/
 Open_Duck_Mini/
 Open_Duck_Mini_Runtime/
 Open_Duck_reference_motion_generator/
+MUJOCO_LOG.TXT
