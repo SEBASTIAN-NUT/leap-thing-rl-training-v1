@@ -88,8 +88,16 @@ Naming Conventions
        softening below (which DID help). Lesson: copy reference settings as
        a starting hypothesis, but verify each one empirically rather than
        trusting the whole bundle. -->
-  <option integrator="implicitfast" solver="CG" iterations="20" ls_iterations="10">
-    <flag eulerdamp="disable"/>
+  <!-- noslip_iterations / multiccd / cone="elliptic" / impratio="10":
+       per EPFL LASA's crawling_hand project (epfl-lasa/crawling_hand
+       readme.md, "Grasping stability in MuJoCo" section), these are the
+       settings they found necessary for stable multi-finger contact in
+       MuJoCo. More directly analogous to our fingertip-contact problem
+       than go1/berkeley_humanoid's simple single-point foot contact
+       (which is what our previous solver settings were copied from). -->
+  <option integrator="implicitfast" solver="CG" iterations="20" ls_iterations="10"
+    noslip_iterations="5" cone="elliptic" impratio="10">
+    <flag eulerdamp="disable" multiccd="enable"/>
   </option>
 
   <!-- mesh assets -->

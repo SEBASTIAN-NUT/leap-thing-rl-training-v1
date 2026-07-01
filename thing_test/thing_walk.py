@@ -27,6 +27,7 @@ from playground.common.rewards import (
     cost_action_rate,
     cost_stand_still,
     reward_alive,
+    cost_termination,
 )
 
 USE_MOTOR_SPEED_LIMITS = True
@@ -62,10 +63,24 @@ def default_config() -> config_dict.ConfigDict:
                 tracking_ang_vel=6.0,
                 torques=-1.0e-3,
                 action_rate=-0.5,
-                alive=20.0,
+                alive=0.0,  # was 20.0: dominated tracking rewards, policy
+                # learned to "stand still and collect alive bonus" instead of
+                # moving (confirmed: zero velocity response to any command
+                # despite high reward/episode length). berkeley_humanoid
+                # reference uses alive=0.0 + termination=-1.0 instead.
+                termination=-1.0,
                 stand_still=-0.5,  # penalize joint movement when command is zero
             ),
-            tracking_sigma=0.01,
+            tracking_sigma_lin=0.01,  # unchanged: offline reward-magnitude
+            # screening (screen_sigma_candidates.py) showed this already
+            # gives a usable gradient across the lin_vel command range.
+            tracking_sigma_ang=0.25,  # was sharing tracking_sigma=0.01 with
+            # lin_vel, which is far too tight for ang_vel's wider +-1.0
+            # command range -- reward was structurally pinned near 0 for
+            # any yaw command above ~15% of range, regardless of actual
+            # tracking quality (confirmed via offline screening). 0.25 was
+            # the best-balanced candidate (no command fraction gave a
+            # 0%-vs-50%-tracking gap below 0.16).
         ),
         push_config=config_dict.create(
             enable=True,
@@ -470,16 +485,17 @@ class Joystick(base.OpenDuckMiniV2Env):
             "tracking_lin_vel": reward_tracking_lin_vel(
                 info["command"],
                 self.get_local_linvel(data),
-                self._config.reward_config.tracking_sigma,
+                self._config.reward_config.tracking_sigma_lin,
             ),
             "tracking_ang_vel": reward_tracking_ang_vel(
                 info["command"],
                 self.get_gyro(data),
-                self._config.reward_config.tracking_sigma,
+                self._config.reward_config.tracking_sigma_ang,
             ),
             "torques": cost_torques(data.actuator_force),
             "action_rate": cost_action_rate(action, info["last_act"]),
             "alive": reward_alive(),
+            "termination": cost_termination(done),
             "stand_still": cost_stand_still(
                 info["command"],
                 self.get_actuator_joints_qpos(data.qpos),
