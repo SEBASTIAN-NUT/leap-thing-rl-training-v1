@@ -71,7 +71,7 @@ def default_config() -> config_dict.ConfigDict:
                 termination=-1.0,
                 stand_still=-0.5,  # penalize joint movement when command is zero
             ),
-            tracking_sigma_lin=0.01,  # unchanged: offline reward-magnitude
+            tracking_sigma_lin=0.025,  # unchanged: offline reward-magnitude
             # screening (screen_sigma_candidates.py) showed this already
             # gives a usable gradient across the lin_vel command range.
             tracking_sigma_ang=0.25,  # was sharing tracking_sigma=0.01 with
