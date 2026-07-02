@@ -61,15 +61,15 @@ def default_config() -> config_dict.ConfigDict:
             scales=config_dict.create(
                 tracking_lin_vel=2.5,
                 tracking_ang_vel=6.0,
-                torques=-1.0e-3,
-                action_rate=-0.5,
+                torques=0.0,
+                action_rate=0.0,
                 alive=0.0,  # was 20.0: dominated tracking rewards, policy
                 # learned to "stand still and collect alive bonus" instead of
                 # moving (confirmed: zero velocity response to any command
                 # despite high reward/episode length). berkeley_humanoid
                 # reference uses alive=0.0 + termination=-1.0 instead.
-                termination=-1.0,
-                stand_still=-0.5,  # penalize joint movement when command is zero
+                termination=0.0,
+                stand_still=0.0,
             ),
             tracking_sigma_lin=0.025,  # unchanged: offline reward-magnitude
             # screening (screen_sigma_candidates.py) showed this already
@@ -422,14 +422,21 @@ class Joystick(base.OpenDuckMiniV2Env):
 
         linvel = self.get_local_linvel(data)
 
-        # --- Policy observation (no privileged info) ---
-        # The real LEAP hand has no IMU -- only motors -- so gyro/gravity
-        # (IMU-derived) must NOT be in the deployed policy's observation.
-        # They're still available to the critic via privileged_state below
-        # (asymmetric actor-critic): the actor learns to act from only what
-        # the real hardware can provide (motor pos/vel/torque, its own past
-        # actions, and contact -- inferable in reality from motor current/
-        # load thresholds), while the critic gets the full picture.
+        # --- Policy observation (noisy IMU per advisor recommendation) ---
+        info["rng"], noise_rng = jax.random.split(info["rng"])
+        noisy_gyro = (
+            gyro
+            + (2.0 * jax.random.uniform(noise_rng, shape=gyro.shape) - 1.0)
+            * self._config.noise_config.level
+            * self._config.noise_config.scales.gyro
+        )
+        info["rng"], noise_rng = jax.random.split(info["rng"])
+        noisy_gravity = (
+            gravity
+            + (2.0 * jax.random.uniform(noise_rng, shape=gravity.shape) - 1.0)
+            * self._config.noise_config.level
+            * self._config.noise_config.scales.gravity
+        )
         state = jp.hstack(
             [
                 info["command"],                                  # 3  [vx, vy, yaw]
@@ -440,6 +447,8 @@ class Joystick(base.OpenDuckMiniV2Env):
                 info["last_last_last_act"],                       # 16
                 info["motor_targets"],                            # 16
                 contact,                                          # 4
+                noisy_gyro,                                       # 3
+                noisy_gravity,                                    # 3
             ]
         )
 
@@ -481,17 +490,31 @@ class Joystick(base.OpenDuckMiniV2Env):
     ) -> dict[str, jax.Array]:
         del metrics  # Unused.
 
+        command = info["command"]
+        local_vel = self.get_local_linvel(data)
+        gyro_rw = self.get_gyro(data)
+
+        # dot-product tracking: 0 reward when commanded to move but standing still
+        cmd_xy = command[:2]
+        vel_xy = local_vel[:2]
+        cmd_sq = jp.maximum(jp.sum(cmd_xy ** 2), 1e-6)
+        tracking_lin = jp.where(
+            jp.sqrt(cmd_sq) > 0.02,
+            jp.clip(jp.dot(vel_xy, cmd_xy) / cmd_sq, 0.0, 1.0),
+            jp.exp(-jp.sum(vel_xy ** 2) / self._config.reward_config.tracking_sigma_lin),
+        )
+
+        cmd_yaw = command[2]
+        gyro_yaw = gyro_rw[2]
+        tracking_ang = jp.where(
+            jp.abs(cmd_yaw) > 0.05,
+            jp.clip(gyro_yaw * cmd_yaw / jp.maximum(cmd_yaw ** 2, 1e-6), 0.0, 1.0),
+            jp.exp(-(gyro_yaw ** 2) / self._config.reward_config.tracking_sigma_ang),
+        )
+
         return {
-            "tracking_lin_vel": reward_tracking_lin_vel(
-                info["command"],
-                self.get_local_linvel(data),
-                self._config.reward_config.tracking_sigma_lin,
-            ),
-            "tracking_ang_vel": reward_tracking_ang_vel(
-                info["command"],
-                self.get_gyro(data),
-                self._config.reward_config.tracking_sigma_ang,
-            ),
+            "tracking_lin_vel": tracking_lin,
+            "tracking_ang_vel": tracking_ang,
             "torques": cost_torques(data.actuator_force),
             "action_rate": cost_action_rate(action, info["last_act"]),
             "alive": reward_alive(),
