@@ -20,15 +20,6 @@ from mujoco_playground._src import mjx_env
 from . import constants
 from . import base
 
-from playground.common.rewards import (
-    reward_tracking_lin_vel,
-    reward_tracking_ang_vel,
-    cost_torques,
-    cost_action_rate,
-    cost_stand_still,
-    reward_alive,
-    cost_termination,
-)
 
 USE_MOTOR_SPEED_LIMITS = True
 
@@ -49,47 +40,43 @@ def default_config() -> config_dict.ConfigDict:
             action_min_delay=0,  # env steps
             action_max_delay=3,  # env steps
             scales=config_dict.create(
-                joint_pos=0.05,
-                joint_vel=2.5,   # rad/s
-                gravity=0.1,
+                joint_pos=0.03,
+                joint_vel=1.5,
+                gravity=0.05,
                 linvel=0.1,
-                gyro=0.1,
+                gyro=0.2,
                 accelerometer=0.05,
             ),
         ),
         reward_config=config_dict.create(
             scales=config_dict.create(
-                tracking_lin_vel=2.5,
-                tracking_ang_vel=6.0,
-                torques=0.0,
-                action_rate=0.0,
-                alive=0.0,  # was 20.0: dominated tracking rewards, policy
-                # learned to "stand still and collect alive bonus" instead of
-                # moving (confirmed: zero velocity response to any command
-                # despite high reward/episode length). berkeley_humanoid
-                # reference uses alive=0.0 + termination=-1.0 instead.
+                tracking_lin_vel=1.5,
+                tracking_ang_vel=0.5,
+                alive=1.0,
+                lin_vel_z=0.0,
+                ang_vel_xy=0.0,
+                orientation=0.0,
+                dof_pos_limits=0.0,
+                pose=0.0,
                 termination=0.0,
                 stand_still=0.0,
+                torques=0.0,
+                action_rate=0.0,
+                energy=0.0,
+                feet_air_time=0.0,
             ),
-            tracking_sigma_lin=0.025,  # unchanged: offline reward-magnitude
-            # screening (screen_sigma_candidates.py) showed this already
-            # gives a usable gradient across the lin_vel command range.
-            tracking_sigma_ang=0.25,  # was sharing tracking_sigma=0.01 with
-            # lin_vel, which is far too tight for ang_vel's wider +-1.0
-            # command range -- reward was structurally pinned near 0 for
-            # any yaw command above ~15% of range, regardless of actual
-            # tracking quality (confirmed via offline screening). 0.25 was
-            # the best-balanced candidate (no command fraction gave a
-            # 0%-vs-50%-tracking gap below 0.16).
+            tracking_sigma_lin=0.01,   # sweep target; lin range ±0.15 m/s
+            tracking_sigma_ang=0.25,   # fixed; ang range ±1.0 rad/s
         ),
         push_config=config_dict.create(
             enable=True,
             interval_range=[5.0, 10.0],
             magnitude_range=[0.1, 1.0],
         ),
-        lin_vel_x=[-0.15, 0.15],
-        lin_vel_y=[-0.2, 0.2],
-        ang_vel_yaw=[-1.0, 1.0],
+        command_config=config_dict.create(
+            a=[1.5, 0.8, 1.2],
+            b=[0.9, 0.25, 0.5],
+        ),
     )
 
 
@@ -147,6 +134,9 @@ class Joystick(base.OpenDuckMiniV2Env):
         # Body ID of the palm (= root body / IMU location)
         self._palm_body_id = self._mj_model.body("palm").id
 
+        self._cmd_a = jp.array(self._config.command_config.a)
+        self._cmd_b = jp.array(self._config.command_config.b)
+
     def reset(self, rng: jax.Array) -> mjx_env.State:
         qpos = self._init_q
         qvel = jp.zeros(self.mjx_model.nv)
@@ -197,7 +187,7 @@ class Joystick(base.OpenDuckMiniV2Env):
         data = mjx.forward(self.mjx_model, data)
 
         rng, cmd_rng = jax.random.split(rng)
-        cmd = self.sample_command(cmd_rng)
+        cmd = jax.random.uniform(cmd_rng, shape=(3,), minval=-self._cmd_a, maxval=self._cmd_a)
 
         # Sample random push interval
         rng, push_rng = jax.random.split(rng)
@@ -341,7 +331,7 @@ class Joystick(base.OpenDuckMiniV2Env):
         # Re-sample command every 500 steps
         state.info["command"] = jp.where(
             state.info["step"] > 500,
-            self.sample_command(cmd_rng),
+            self.sample_command(cmd_rng, state.info["command"]),
             state.info["command"],
         )
         state.info["step"] = jp.where(
@@ -373,11 +363,10 @@ class Joystick(base.OpenDuckMiniV2Env):
     ) -> mjx_env.Observation:
 
         # --- Sensor readings ---
-        # gyro/accelerometer/gravity are IMU-derived and only ever feed
-        # privileged_state (the real hand has no IMU -- see the note at
-        # `state`'s definition below), so they're kept clean/un-noised:
-        # noise simulation only matters for things the deployed policy
-        # actually reads.
+        # gyro/accelerometer/gravity are IMU-derived.
+        # Phase-1: noisy IMU included in actor obs to improve learning success.
+        # Phase-2: remove IMU from state to match real hardware (LEAP Hand has no IMU).
+        # Clean versions always feed privileged_state.
         gyro = self.get_gyro(data)
         accelerometer = self.get_accelerometer(data)
         # Gravity direction in palm-local frame
@@ -422,7 +411,6 @@ class Joystick(base.OpenDuckMiniV2Env):
 
         linvel = self.get_local_linvel(data)
 
-        # --- Policy observation (noisy IMU per advisor recommendation) ---
         info["rng"], noise_rng = jax.random.split(info["rng"])
         noisy_gyro = (
             gyro
@@ -437,6 +425,15 @@ class Joystick(base.OpenDuckMiniV2Env):
             * self._config.noise_config.level
             * self._config.noise_config.scales.gravity
         )
+        info["rng"], noise_rng = jax.random.split(info["rng"])
+        noisy_linvel = (
+            linvel
+            + (2.0 * jax.random.uniform(noise_rng, shape=linvel.shape) - 1.0)
+            * self._config.noise_config.level
+            * self._config.noise_config.scales.linvel
+        )
+
+        # --- Policy observation (112 dims, phase-1: IMU included) ---
         state = jp.hstack(
             [
                 info["command"],                                  # 3  [vx, vy, yaw]
@@ -449,8 +446,9 @@ class Joystick(base.OpenDuckMiniV2Env):
                 contact,                                          # 4
                 noisy_gyro,                                       # 3
                 noisy_gravity,                                    # 3
+                noisy_linvel,                                     # 3
             ]
-        )
+        )  # total: 112
 
         # --- Privileged observation (teacher; includes ground-truth sensor data) ---
         global_angvel = self.get_global_angvel(data)
@@ -459,7 +457,7 @@ class Joystick(base.OpenDuckMiniV2Env):
         privileged_state = jp.hstack(
             [
                 state,
-                gyro,                                              # 3 (clean; not in state -- no real IMU)
+                gyro,                                              # 3 (clean; state has noisy version)
                 accelerometer,                                    # 3
                 gravity,                                          # 3
                 linvel,                                           # 3
@@ -492,59 +490,45 @@ class Joystick(base.OpenDuckMiniV2Env):
 
         command = info["command"]
         local_vel = self.get_local_linvel(data)
-        gyro_rw = self.get_gyro(data)
+        gyro = self.get_gyro(data)
+        global_linvel = self.get_global_linvel(data)
+        global_angvel = self.get_global_angvel(data)
+        upvector = self.get_gravity(data)
+        sigma_lin = self._config.reward_config.tracking_sigma_lin
+        sigma_ang = self._config.reward_config.tracking_sigma_ang
 
-        # dot-product tracking: 0 reward when commanded to move but standing still
-        cmd_xy = command[:2]
-        vel_xy = local_vel[:2]
-        cmd_sq = jp.maximum(jp.sum(cmd_xy ** 2), 1e-6)
-        tracking_lin = jp.where(
-            jp.sqrt(cmd_sq) > 0.02,
-            jp.clip(jp.dot(vel_xy, cmd_xy) / cmd_sq, 0.0, 1.0),
-            jp.exp(-jp.sum(vel_xy ** 2) / self._config.reward_config.tracking_sigma_lin),
-        )
+        lin_vel_error = jp.sum(jp.square(command[:2] - local_vel[:2]))
+        tracking_lin = jp.exp(-lin_vel_error / sigma_lin)
+        ang_vel_error = jp.square(command[2] - gyro[2])
+        tracking_ang = jp.exp(-ang_vel_error / sigma_ang)
 
-        cmd_yaw = command[2]
-        gyro_yaw = gyro_rw[2]
-        tracking_ang = jp.where(
-            jp.abs(cmd_yaw) > 0.05,
-            jp.clip(gyro_yaw * cmd_yaw / jp.maximum(cmd_yaw ** 2, 1e-6), 0.0, 1.0),
-            jp.exp(-(gyro_yaw ** 2) / self._config.reward_config.tracking_sigma_ang),
-        )
+        joint_angles = self.get_actuator_joints_qpos(data.qpos)
+        joint_vel = self.get_actuator_joints_qvel(data.qvel)
+        cmd_norm = jp.linalg.norm(command)
+        out_of_limits = -jp.clip(joint_angles - self._soft_lowers, None, 0.0)
+        out_of_limits += jp.clip(joint_angles - self._soft_uppers, 0.0, None)
+        air_time_rew = jp.sum((info["feet_air_time"] - 0.1) * first_contact) * (cmd_norm > 0.01)
 
         return {
             "tracking_lin_vel": tracking_lin,
             "tracking_ang_vel": tracking_ang,
-            "torques": cost_torques(data.actuator_force),
-            "action_rate": cost_action_rate(action, info["last_act"]),
-            "alive": reward_alive(),
-            "termination": cost_termination(done),
-            "stand_still": cost_stand_still(
-                info["command"],
-                self.get_actuator_joints_qpos(data.qpos),
-                self.get_actuator_joints_qvel(data.qvel),
-                self._default_actuator,
-            ),
+            "lin_vel_z": jp.square(global_linvel[2]),
+            "ang_vel_xy": jp.sum(jp.square(global_angvel[:2])),
+            "orientation": jp.sum(jp.square(upvector[:2])),
+            "pose": jp.exp(-jp.sum(jp.square(joint_angles - self._default_actuator))),
+            "dof_pos_limits": jp.sum(out_of_limits),
+            "stand_still": jp.sum(jp.abs(joint_angles - self._default_actuator)) * (cmd_norm < 0.01),
+            "termination": done,
+            "torques": jp.sqrt(jp.sum(jp.square(data.actuator_force))) + jp.sum(jp.abs(data.actuator_force)),
+            "action_rate": jp.sum(jp.square(action - info["last_act"])),
+            "energy": jp.sum(jp.abs(joint_vel) * jp.abs(data.actuator_force)),
+            "feet_air_time": air_time_rew,
+            "alive": 1.0 - done,
         }
 
-    def sample_command(self, rng: jax.Array) -> jax.Array:
-        rng1, rng2, rng3, rng4 = jax.random.split(rng, 4)
-
-        lin_vel_x = jax.random.uniform(
-            rng1, minval=self._config.lin_vel_x[0], maxval=self._config.lin_vel_x[1]
-        )
-        lin_vel_y = jax.random.uniform(
-            rng2, minval=self._config.lin_vel_y[0], maxval=self._config.lin_vel_y[1]
-        )
-        ang_vel_yaw = jax.random.uniform(
-            rng3,
-            minval=self._config.ang_vel_yaw[0],
-            maxval=self._config.ang_vel_yaw[1],
-        )
-
-        # 10% chance of zero command (stand still)
-        return jp.where(
-            jax.random.bernoulli(rng4, p=0.1),
-            jp.zeros(3),
-            jp.hstack([lin_vel_x, lin_vel_y, ang_vel_yaw]),
-        )
+    def sample_command(self, rng: jax.Array, x_k: jax.Array) -> jax.Array:
+        rng, y_rng, w_rng, z_rng = jax.random.split(rng, 4)
+        y_k = jax.random.uniform(y_rng, shape=(3,), minval=-self._cmd_a, maxval=self._cmd_a)
+        z_k = jax.random.bernoulli(z_rng, self._cmd_b, shape=(3,))
+        w_k = jax.random.bernoulli(w_rng, 0.5, shape=(3,))
+        return x_k - w_k * (x_k - y_k * z_k)

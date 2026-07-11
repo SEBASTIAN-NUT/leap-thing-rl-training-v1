@@ -62,15 +62,9 @@ class CommandResponseCheck(MJInferBase):
         self.commands = [0.0, 0.0, 0.0]
 
     def get_obs(self, data, commands) -> np.ndarray:
-        # No gyro/gravity here: thing_walk.py's actual policy observation
-        # ("state", what the exported ONNX model was trained on) excludes
-        # IMU-derived values entirely -- the real LEAP hand has no IMU, only
-        # motors. mujoco_infer.py's get_obs() (which this was copied from)
-        # still includes them, a leftover from before that design change --
-        # confirmed as a real bug here via a concrete symptom: onnxruntime
-        # rejecting a 109-dim observation against the model's expected
-        # 103-dim input (103 = 3 + 16*6 + 4, matching thing_walk.py exactly;
-        # 109 = 103 + 3(gyro) + 3(gravity)).
+        # 112-dim obs matching thing_walk.py _get_obs() state:
+        # cmd(3) + joint_pos(16) + joint_vel(16) + last_act(16)*3 +
+        # motor_targets(16) + contact(4) + gyro(3) + gravity(3) + linvel(3)
         joint_angles = self.get_actuator_joints_qpos(data.qpos)
         joint_backlash = self.get_actuator_backlash_qpos(data.qpos)
         for i in self.backlash_idx_to_add:
@@ -79,6 +73,9 @@ class CommandResponseCheck(MJInferBase):
 
         joint_vel = self.get_actuator_joints_qvel(data.qvel)
         contacts = self.get_feet_contacts(data)
+        gyro = self.get_gyro(data)
+        gravity = self.get_gravity(data)
+        linvel = self.get_sensor(data, "local_linvel")
 
         obs = np.concatenate(
             [
@@ -90,6 +87,9 @@ class CommandResponseCheck(MJInferBase):
                 self.last_last_last_action,
                 self.motor_targets,
                 contacts,
+                gyro,
+                gravity,
+                linvel,
             ]
         )
         return obs.astype(np.float32)

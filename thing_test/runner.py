@@ -234,11 +234,30 @@ class LeapThingRunner(BaseRunner):
                 return value.to_dict()
             return value
 
+        priv_dim = int(
+            self.env.observation_size.get("privileged_state", (0,))[0]
+            if hasattr(self.env, "observation_size")
+            else 0
+        )
         metadata = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "git_commit": commit,
             "git_dirty": dirty,
             "cli_args": vars(self.args),
+            "obs": {
+                "actor_dim": self.obs_size,
+                "privileged_dim": priv_dim,
+                "imu_in_actor": self.obs_size == 112,
+                "actor_components": (
+                    "command(3)+noisy_joint_angle(16)+noisy_joint_vel(16)"
+                    "+last_act(16)+last_last_act(16)+last_last_last_act(16)"
+                    "+motor_targets(16)+contact(4)+noisy_gyro(3)+noisy_gravity(3)+noisy_linvel(3)"
+                    if self.obs_size == 112 else
+                    "command(3)+noisy_joint_angle(16)+noisy_joint_vel(16)"
+                    "+last_act(16)+last_last_act(16)+last_last_last_act(16)"
+                    "+motor_targets(16)+contact(4)"
+                ),
+            },
             "env_config": to_plain(self.env.config if hasattr(self.env, "config") else self.env_config),
             "ppo_training_params": {
                 k: v for k, v in self.ppo_training_params.items()
@@ -265,7 +284,15 @@ class LeapThingRunner(BaseRunner):
         readme_lines += ["", "## PPO training params", ""]
         for k, v in metadata["ppo_training_params"].items():
             readme_lines.append(f"- `{k}`: {v}")
+        imu_flag = "yes (phase-1)" if self.obs_size == 112 else "no (phase-2)"
         readme_lines += [
+            "",
+            "## Observation space",
+            "",
+            f"- Actor obs dim : {self.obs_size}",
+            f"- Privileged obs dim: {priv_dim}",
+            f"- IMU in actor  : {imu_flag}",
+            f"- Actor components: {metadata['obs']['actor_components']}",
             "",
             "## Env config",
             "",
