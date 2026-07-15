@@ -176,12 +176,12 @@ def run_single(overrides: dict, output_dir: str, num_timesteps: int) -> bool:
     log_path = f"/tmp/{Path(output_dir).name}.log"
     print(f"  log: {log_path}")
     try:
-        with open(log_path, "w") as log:
+        with open(log_path, "wb") as log:
             result = subprocess.run(cmd, env=env, cwd=str(SCRIPT_DIR),
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True)
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             log.write(result.stdout)
-            print(result.stdout[-3000:] if len(result.stdout) > 3000 else result.stdout)
+            output = result.stdout.decode("utf-8", errors="replace")
+            print(output[-3000:] if len(output) > 3000 else output)
         return result.returncode == 0
     except Exception as e:
         print(f"  [ERROR] {e}")
