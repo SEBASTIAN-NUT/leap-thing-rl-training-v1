@@ -50,7 +50,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent.parent
 PYTHON = SCRIPT_DIR / "Open_Duck_Playground" / ".venv" / "bin" / "python"
 
-DEFAULT_TIMESTEPS = 150_000_000
+DEFAULT_TIMESTEPS = 50_000_000
 SLEEP_BETWEEN_RUNS = 300
 
 # ============================================================
