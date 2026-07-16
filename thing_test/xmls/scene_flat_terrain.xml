@@ -1,0 +1,53 @@
+#this is converted into leap_hand ver.
+<mujoco model="scene">
+    <include file="leap_thing.xml"/>
+
+    <visual>
+        <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+        <rgba haze="0.15 0.25 0.35 1"/>
+        <global azimuth="160" elevation="-20"/>
+    </visual>
+    <!-- 
+    <asset>
+        <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+        <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+            markrgb="0.8 0.8 0.8" width="300" height="300"/>
+        <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    </asset> -->
+
+    <!-- <worldbody>
+        <body name="floor">
+            <light pos="0 0 3.5" dir="0 0 -1" directional="true"/>
+            <geom name="floor" size="0 0 0.05" pos="0 0 0" type="plane" material="groundplane" contype="1"
+                conaffinity="1" priority="1"/>
+        </body>
+    </worldbody> -->
+
+
+    <asset>
+        <texture type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/>
+        <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="1 1 1" rgb2="1 1 1" markrgb="0 0 0"
+            width="300" height="300"/>
+        <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0"/>
+    </asset>
+
+    <worldbody>
+        <body name="floor">
+            <geom name="floor" size="0 0 0.01" type="plane" material="groundplane" contype="1" conaffinity="1"
+                priority="1" friction="0.6" condim="3"/>
+        </body>
+    </worldbody>
+    <keyframe>
+        <!-- Re-derived via thing_test/search_home_pose_v4.py: searched
+             palm_z + per-joint finger curl (respecting actual joint
+             ranges) for a pose that survives the full 1000-step episode
+             length under plain PD hold with no policy/RL involved at all
+             (flipped=False, palm_drift=0.0015, contact_frac=0.947,
+             max_qacc=2964 -- all dramatically better than the original
+             qpos, which free-fell 24-28cm before any contact and exploded
+             on impact). This fixes the home pose at the geometry level
+             instead of relying on RL to recover from a physically
+             unrealistic start. -->
+        <key name="home" qpos="0.0165 0.0052 0.12 0.9999 0.0052 -0.0147 -0.0004 0.3220 -0.3350 1.2684 0.0000 0.3220 -0.0000 1.2813 -0.0379 0.2075 0.5235 1.3625 0.0175 1.8131 -0.3490 -0.4700 0.0000"/>
+    </keyframe>
+</mujoco>

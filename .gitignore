@@ -1,0 +1,14 @@
+checkpoints/
+logs/
+Open_Duck_Playground/
+Open_Duck_Mini/
+Open_Duck_Mini_Runtime/
+Open_Duck_reference_motion_generator/
+__pycache__/
+*.pyc
+*.csv
+*.log
+*.pkl
+*.onnx
+MUJOCO_LOG.TXT
+mujoco_saved_obs.pkl
