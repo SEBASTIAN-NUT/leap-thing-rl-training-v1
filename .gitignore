@@ -12,3 +12,4 @@ __pycache__/
 *.onnx
 MUJOCO_LOG.TXT
 mujoco_saved_obs.pkl
+.tmp/

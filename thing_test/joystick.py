@@ -80,7 +80,8 @@ def default_config() -> config_dict.ConfigDict:
                 action_rate=-0.5,  # was -1.5
                 alive=20.0,
             ),
-            tracking_sigma=0.01,  # was working at 0.01
+            tracking_sigma_lin=0.01,
+            tracking_sigma_ang=0.25,
         ),
         push_config=config_dict.create(
             enable=True,
@@ -620,12 +621,12 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "tracking_lin_vel": reward_tracking_lin_vel(
                 info["command"],
                 self.get_local_linvel(data),
-                self._config.reward_config.tracking_sigma,
+                self._config.reward_config.tracking_sigma_lin,
             ),
             "tracking_ang_vel": reward_tracking_ang_vel(
                 info["command"],
                 self.get_gyro(data),
-                self._config.reward_config.tracking_sigma,
+                self._config.reward_config.tracking_sigma_ang,
             ),
             # "orientation": cost_orientation(self.get_gravity(data)),
             "torques": cost_torques(data.actuator_force),

@@ -20,7 +20,12 @@ spending time on reward-weight tuning.
 """
 
 import argparse
+import csv
+import json
+import math
 import time
+from datetime import datetime
+from pathlib import Path
 
 import mujoco
 import mujoco.viewer
@@ -103,7 +108,8 @@ class CommandResponseCheck(MJInferBase):
         yaw = np.arctan2(2 * (w * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
         return float(x), float(y), float(yaw)
 
-    def run(self, phases, phase_duration, show_viewer=True, policy_warmup=0.0):
+    def run(self, phases, phase_duration, show_viewer=True, policy_warmup=0.0,
+            video_out=None, csv_out=None):
         """policy_warmup: seconds to hold the home pose (policy disabled,
         motor_targets pinned to default_actuator) before letting the
         policy drive at all. Set > 0 to isolate "is the home pose itself
@@ -112,6 +118,11 @@ class CommandResponseCheck(MJInferBase):
         mujoco_infer.py's policy_enabled-starts-False safety check, which
         this script originally lacked (it ran the policy from frame 1)."""
         results = []
+        frames = []
+        renderer = None
+        csv_rows = [] if csv_out else None
+        if video_out is not None:
+            renderer = mujoco.Renderer(self.model, height=480, width=640)
 
         def loop(viewer):
             counter = 0
@@ -158,6 +169,24 @@ class CommandResponseCheck(MJInferBase):
                             self.prev_motor_targets = self.motor_targets.copy()
                         self.data.ctrl[:] = self.motor_targets
 
+                        if csv_rows is not None:
+                            lv = self.get_sensor(self.data, "local_linvel")
+                            gy = self.get_sensor(self.data, "imu_gyro")
+                            csv_rows.append({
+                                "time": round(float(self.data.time), 4),
+                                "phase": label,
+                                "cmd_vx": float(cmd[0]),
+                                "cmd_vy": float(cmd[1]),
+                                "cmd_yaw": float(cmd[2]),
+                                "inst_vx": round(float(lv[0]), 4),
+                                "inst_vy": round(float(lv[1]), 4),
+                                "inst_yaw_rate": round(float(gy[2]), 4),
+                            })
+
+                    if renderer is not None and counter % self.decimation == 0:
+                        renderer.update_scene(self.data)
+                        frames.append(renderer.render().copy())
+
                     if viewer is not None:
                         viewer.sync()
                         time_until_next_step = self.sim_dt - (
@@ -195,6 +224,27 @@ class CommandResponseCheck(MJInferBase):
                 loop(viewer)
         else:
             loop(None)
+
+        if renderer is not None:
+            renderer.close()
+
+        if csv_out and csv_rows:
+            Path(csv_out).parent.mkdir(parents=True, exist_ok=True)
+            with open(csv_out, "w", newline="", encoding="utf-8") as _f:
+                _w = csv.DictWriter(_f, fieldnames=list(csv_rows[0].keys()))
+                _w.writeheader()
+                _w.writerows(csv_rows)
+            print(f"CSV saved -> {csv_out}")
+
+        if video_out and frames:
+            try:
+                import imageio
+                ctrl_hz = int(1 / (self.sim_dt * self.decimation))
+                Path(video_out).parent.mkdir(parents=True, exist_ok=True)
+                imageio.mimsave(video_out, frames, fps=ctrl_hz)
+                print(f"Video saved → {video_out}")
+            except ImportError:
+                print("動画保存には imageio が必要: pip install imageio[ffmpeg]")
 
         print("\n=== Summary: commanded vs measured ===")
         for label, cmd, mvx, mvy, mwyaw in results:
@@ -256,6 +306,24 @@ def main():
             "physically stable, isolated from the policy."
         ),
     )
+    parser.add_argument(
+        "--json_out",
+        type=str,
+        default=None,
+        help="結果を JSON ファイルに保存 (例: eval_results/sigma_0p005.json)",
+    )
+    parser.add_argument(
+        "--video_out",
+        type=str,
+        default=None,
+        help="動画を保存 (例: eval_results/sigma_0p005.mp4)  要: pip install imageio[ffmpeg]",
+    )
+    parser.add_argument(
+        "--csv_out",
+        type=str,
+        default=None,
+        help="瞬時速度の時系列データを CSV に保存",
+    )
     args = parser.parse_args()
 
     fractions = [float(f) for f in args.fractions.split(",") if f != ""]
@@ -263,12 +331,48 @@ def main():
     phases = build_phases(args.vx_max, args.vy_max, args.yaw_max, fractions, axes)
 
     checker = CommandResponseCheck(args.model_path, args.onnx_model_path)
-    checker.run(
+    results = checker.run(
         phases,
         args.phase_duration,
         show_viewer=not args.no_viewer,
         policy_warmup=args.policy_warmup,
+        video_out=args.video_out,
+        csv_out=args.csv_out,
     )
+
+    if args.json_out and results:
+        records = [
+            {
+                "phase": label,
+                "cmd_vx": cmd[0], "cmd_vy": cmd[1], "cmd_yaw": cmd[2],
+                "meas_vx": float(mvx), "meas_vy": float(mvy), "meas_yaw": float(mwyaw),
+                "err_vx": abs(cmd[0] - mvx),
+                "err_vy": abs(cmd[1] - mvy),
+                "err_yaw": abs(cmd[2] - mwyaw),
+            }
+            for label, cmd, mvx, mvy, mwyaw in results
+        ]
+        n = len(records)
+        rmse_vx  = math.sqrt(sum(r["err_vx"]  ** 2 for r in records) / n)
+        rmse_yaw = math.sqrt(sum(r["err_yaw"] ** 2 for r in records) / n)
+        output = {
+            "onnx": args.onnx_model_path,
+            "timestamp": datetime.now().isoformat(),
+            "protocol": {
+                "vx_max": args.vx_max, "vy_max": args.vy_max,
+                "yaw_max": args.yaw_max, "fractions": fractions,
+                "axes": axes, "phase_duration": args.phase_duration,
+            },
+            "rmse_vx": rmse_vx,
+            "rmse_yaw": rmse_yaw,
+            "phases": records,
+        }
+        from pathlib import Path
+        Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
+        with open(args.json_out, "w", encoding="utf-8") as f:
+            import json as _json
+            _json.dump(output, f, indent=2, ensure_ascii=False)
+        print(f"\nJSON saved → {args.json_out}")
 
 
 if __name__ == "__main__":

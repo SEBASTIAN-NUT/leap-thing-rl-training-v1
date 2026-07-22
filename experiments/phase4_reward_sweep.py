@@ -106,7 +106,6 @@ def run_single(overrides: dict, output_dir: str, num_timesteps: int) -> bool:
     env = {
         **os.environ,
         "JAX_COMPILATION_CACHE_DIR": jax_cache,
-        "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
     }
     cmd = [
         str(PYTHON), "-m", "thing_test.runner",

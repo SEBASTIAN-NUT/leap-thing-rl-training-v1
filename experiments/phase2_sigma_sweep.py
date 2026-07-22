@@ -100,7 +100,6 @@ def run_single(overrides: dict, output_dir: str, num_timesteps: int) -> bool:
     env = {
         **os.environ,
         "JAX_COMPILATION_CACHE_DIR": jax_cache,
-        "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
     }
     cmd = [
         str(PYTHON), "-m", "thing_test.runner",
@@ -175,12 +174,20 @@ def main():
     parser.add_argument("--phase", choices=["2a", "2b", "all"], default="all",
                         help="実行するフェーズ (default: all = 2a then 2b)")
     parser.add_argument("--timesteps", type=int, default=DEFAULT_TIMESTEPS)
+    parser.add_argument("--values", type=float, nargs="+", default=None,
+                        help="候補値を上書き (例: --values 0.01 0.05)")
     args = parser.parse_args()
 
     if args.phase in ("2a", "all"):
-        run_phase(PHASE2A, args.timesteps)
+        phase = dict(PHASE2A)
+        if args.values is not None:
+            phase["candidates"] = args.values
+        run_phase(phase, args.timesteps)
     if args.phase in ("2b", "all"):
-        run_phase(PHASE2B, args.timesteps)
+        phase = dict(PHASE2B)
+        if args.values is not None:
+            phase["candidates"] = args.values
+        run_phase(phase, args.timesteps)
 
 
 if __name__ == "__main__":

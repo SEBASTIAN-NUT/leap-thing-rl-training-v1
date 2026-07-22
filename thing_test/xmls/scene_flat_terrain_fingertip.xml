@@ -48,8 +48,6 @@
              on impact). This fixes the home pose at the geometry level
              instead of relying on RL to recover from a physically
              unrealistic start. -->
-        <key name="home_fingertip" qpos="0.0165 0.0052 0.12 0.9999 0.0052 -0.0147 -0.0004 0.3220 -0.3350 1.2684 0.0000 0.3220 -0.0000 1.2813 -0.0379 0.2075 0.5235 1.3625 0.0175 1.8131 -0.3490 -0.4700 0.0000"/>
         <key name="home" qpos="0.0165 0.0052 0.12 0.9999 0.0052 -0.0147 -0.0004 0.3220 -0.3350 1.2684 0.0000 0.3220 -0.0000 1.2813 -0.0379 0.2075 0.5235 1.3625 0.0175 1.8131 -0.3490 -0.4700 0.0000"/>
-        "
     </keyframe>
 </mujoco>
