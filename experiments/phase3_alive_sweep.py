@@ -8,13 +8,14 @@ Phase 2 で決定した sigma を固定し、alive スケールを変化させ�
 実行方法 (プロジェクトルートから):
     Open_Duck_Playground/.venv/bin/python experiments/phase3_alive_sweep.py
     Open_Duck_Playground/.venv/bin/python experiments/phase3_alive_sweep.py --values 0.1 0.2 0.5
-    Open_Duck_Playground/.venv/bin/python experiments/phase3_alive_sweep.py --timesteps 50000000
+    Open_Duck_Playground/.venv/bin/python experiments/phase3_alive_sweep.py --auto_eval
+
+選択基準: 速度追従 RMSE_vx の最小値 (報酬最大値ではない)
 
 注意:
     ・連続2ランを超えるとコンパイル時 ptxas クラッシュ (SIGSEGV) が発生する。
       3本目以降は sudo reboot 後に実行すること。
-    ・alive=0.0, 0.05 は訓練フェーズで別のクラッシュ (エピソード即死 → PPO バッチ問題?) が
-      発生するため通常は実行しない。
+    ・alive=0.0, 0.05 はクラッシュのため通常スキップ。
 """
 import argparse
 import json
@@ -23,44 +24,33 @@ import os
 import resource
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 
-# ============================================================
-# 実験設定
-# ============================================================
-
-SCRIPT_DIR = Path(__file__).resolve().parent.parent  # project root
+SCRIPT_DIR = Path(__file__).resolve().parent.parent
 PYTHON = SCRIPT_DIR / "Open_Duck_Playground" / ".venv" / "bin" / "python"
 
 DEFAULT_TIMESTEPS = 150_000_000
-SLEEP_BETWEEN_RUNS = 300  # 300s が consecutive crash 回避に有効
+SLEEP_BETWEEN_RUNS = 300
 
-# Phase 2 の結果を受けて固定するパラメータ
+# !! Phase 2b 再実行後は tracking_sigma_lin と tracking_sigma_ang を更新すること !!
 FIXED_PARAMS = {
     "reward_config.scales.tracking_lin_vel": 3.0,
     "reward_config.scales.tracking_ang_vel": 1.0,
     "reward_config.tracking_sigma_lin":      0.025,
-    "reward_config.tracking_sigma_ang":      2.0,
+    "reward_config.tracking_sigma_ang":      0.25,  # Phase 2b result
 }
 
-# alive sweep 候補
-# 注: 0.0, 0.05 はクラッシュのため通常スキップ
-DEFAULT_ALIVE_VALUES = [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
-SAFE_ALIVE_VALUES    = [0.1, 0.2, 0.3, 0.5, 1.0]  # 0.0/0.05 を除外
+SAFE_ALIVE_VALUES = [0.1, 0.2, 0.3, 0.5, 1.0]
 
-# ============================================================
-# 事前シミュレーション (reward_check.py と同じ計算)
-# ============================================================
 
 def _presim(alive_values):
-    """alive スケールごとの報酬割合を表示する。"""
-    sigma_l, sigma_a = 0.025, 2.0
-    trk_l,  trk_a   = 3.0,   1.0
-    cmd_vx,  cmd_yaw = 0.15,  1.0
+    sigma_l, sigma_a = FIXED_PARAMS["reward_config.tracking_sigma_lin"], FIXED_PARAMS["reward_config.tracking_sigma_ang"]
+    trk_l = FIXED_PARAMS["reward_config.scales.tracking_lin_vel"]
+    trk_a = FIXED_PARAMS["reward_config.scales.tracking_ang_vel"]
+    cmd_vx, cmd_yaw = 0.15, 1.0
 
     print("\n[事前シミュレーション] alive が総報酬に占める割合")
     effs = [0.0, 0.13, 0.25, 0.5, 1.0]
@@ -78,31 +68,48 @@ def _presim(alive_values):
             ratios.append(ratio)
             row += f"  {ratio*100:5.1f}%"
         r0 = ratios[0]
-        if a == 0.0:     verdict = "[生存圧なし]"
-        elif r0 > 0.5:   verdict = "[alive 支配]"
-        elif r0 > 0.3:   verdict = "[やや大きい]"
-        elif r0 < 0.05:  verdict = "[生存圧が弱い]"
-        else:            verdict = "[良好]"
+        if a == 0.0:    verdict = "[生存圧なし]"
+        elif r0 > 0.5:  verdict = "[alive 支配]"
+        elif r0 > 0.3:  verdict = "[やや大きい]"
+        elif r0 < 0.05: verdict = "[生存圧が弱い]"
+        else:           verdict = "[良好]"
         print(row + f"  | {verdict}")
     print()
 
-# ============================================================
-# 実験結果 (参考)
-# ============================================================
-# alive=0.0  : CRASH (訓練フェーズ SIGSEGV, 原因: エピソード即死→PPO問題?)
-# alive=0.05 : CRASH (同上)
-# alive=0.1  : SUCCESS  peak 13.57 @126M  elapsed 3:31h
-# alive=0.2  : SUCCESS  peak 14.01 @126M  elapsed 3:31h
-# alive=0.3  : CRASH (コンパイル ptxas SIGSEGV, 2連続成功後)  → 未取得
-# alive=0.5  : SUCCESS  peak 18.34 @126M  elapsed 3:31h  ← 最良
-# alive=1.0  : 実行中 / 未完了
 
-# ============================================================
-# ランナー
-# ============================================================
+def find_latest_onnx(output_dir: str):
+    def step_num(p):
+        try:
+            return int(p.stem.rsplit("_", 1)[-1])
+        except ValueError:
+            return -1
+    candidates = list(Path(output_dir).glob("*.onnx"))
+    return max(candidates, key=step_num) if candidates else None
+
+
+def run_eval(onnx_path: Path, json_out: str) -> dict | None:
+    Path(json_out).parent.mkdir(parents=True, exist_ok=True)
+    csv_out = json_out.replace(".json", ".csv")
+    cmd = [
+        str(PYTHON), "-m", "thing_test.check_command_response",
+        "-o", str(onnx_path),
+        "--no_viewer",
+        "--axes", "vx,yaw",
+        "--fractions", "0.25,0.5,0.75,1.0",
+        "--phase_duration", "4.0",
+        "--json_out", json_out,
+        "--csv_out", csv_out,
+    ]
+    result = subprocess.run(cmd, cwd=str(SCRIPT_DIR),
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    print(result.stdout.decode("utf-8", errors="replace"))
+    if result.returncode != 0 or not Path(json_out).exists():
+        return None
+    with open(json_out, encoding="utf-8") as f:
+        return json.load(f)
+
 
 def _set_stack_unlimited():
-    """ptxas の stack overflow を防ぐ (Linux only)."""
     try:
         resource.setrlimit(resource.RLIMIT_STACK,
                            (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
@@ -111,12 +118,8 @@ def _set_stack_unlimited():
 
 
 def run_single(overrides: dict, output_dir: str, num_timesteps: int) -> bool:
-    """1ランを JAX キャッシュ分離で実行。成功なら True を返す。"""
     jax_cache = tempfile.mkdtemp(prefix="jax_cache_")
-    env = {
-        **os.environ,
-        "JAX_COMPILATION_CACHE_DIR": jax_cache,
-    }
+    env = {**os.environ, "JAX_COMPILATION_CACHE_DIR": jax_cache}
     cmd = [
         str(PYTHON), "-m", "thing_test.runner",
         "--env", "joystick",
@@ -144,10 +147,11 @@ def run_single(overrides: dict, output_dir: str, num_timesteps: int) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="Phase 3: alive scale sweep")
-    parser.add_argument("--values", type=float, nargs="+", default=SAFE_ALIVE_VALUES,
-                        help=f"alive 候補 (default: {SAFE_ALIVE_VALUES})")
+    parser.add_argument("--values", type=float, nargs="+", default=SAFE_ALIVE_VALUES)
     parser.add_argument("--timesteps", type=int, default=DEFAULT_TIMESTEPS)
     parser.add_argument("--skip-presim", action="store_true")
+    parser.add_argument("--auto_eval", action="store_true",
+                        help="学習後に check_command_response で速度追従 RMSE を自動評価")
     args = parser.parse_args()
 
     _set_stack_unlimited()
@@ -157,14 +161,16 @@ def main():
 
     print("=" * 60)
     print("Phase 3: alive scale sweep")
-    print(f"  values    : {args.values}")
-    print(f"  fixed     : {json.dumps(FIXED_PARAMS, indent=4)}")
-    print(f"  timesteps : {args.timesteps:,}")
-    print(f"  sleep     : {SLEEP_BETWEEN_RUNS}s between runs")
+    print(f"  values   : {args.values}")
+    print(f"  fixed    : {json.dumps(FIXED_PARAMS, indent=4)}")
+    print(f"  timesteps: {args.timesteps:,}")
+    print(f"  sleep    : {SLEEP_BETWEEN_RUNS}s between runs")
+    print(f"  選択基準 : {'RMSE_vx 最小 (速度追従)' if args.auto_eval else '報酬最大 (要手動確認)'}")
     print("=" * 60)
 
     succeeded = []
     failed = []
+    eval_results = {}
     total = len(args.values)
 
     for i, alive in enumerate(args.values, 1):
@@ -179,10 +185,27 @@ def main():
         ok = run_single(overrides, run_dir, args.timesteps)
         if ok:
             succeeded.append(alive)
-            print(f"  => SUCCESS")
+            print("  => SUCCESS")
+            if args.auto_eval:
+                onnx = find_latest_onnx(run_dir)
+                if onnx:
+                    json_out = f"eval_results/p3_alive_{slug}.json"
+                    print(f"  [eval] {onnx.name} -> {json_out}")
+                    res = run_eval(onnx, json_out)
+                    if res:
+                        eval_results[alive] = {
+                            "rmse_vx":  res["rmse_vx"],
+                            "rmse_yaw": res["rmse_yaw"],
+                            "json":     json_out,
+                        }
+                        print(f"  [eval] RMSE_vx={res['rmse_vx']:.4f}  RMSE_yaw={res['rmse_yaw']:.4f}")
+                    else:
+                        print("  [eval] 評価失敗")
+                else:
+                    print("  [eval] ONNX が見つからない")
         else:
             failed.append(alive)
-            print(f"  => FAILED  (ptxas/SIGSEGV なら reboot 後に再実行)")
+            print("  => FAILED  (ptxas/SIGSEGV なら reboot 後に再実行)")
 
         if i < total:
             print(f"  Sleeping {SLEEP_BETWEEN_RUNS}s...")
@@ -192,10 +215,21 @@ def main():
     print(f"SUCCEEDED: {succeeded}")
     if failed:
         print(f"FAILED   : {failed}")
-        print("  => 失敗したものは sudo reboot 後に個別実行:")
         for v in failed:
             slug = str(v).replace(".", "p")
-            print(f"     python experiments/phase3_alive_sweep.py --values {v}")
+            print(f"     python experiments/phase3_alive_sweep.py --values {v} --auto_eval")
+
+    if eval_results:
+        print("\n=== 速度追従 RMSE 比較 (alive sweep) ===")
+        print(f"  {'alive':>6}  {'RMSE_vx':>10}  {'RMSE_yaw':>10}")
+        best = min(eval_results, key=lambda v: eval_results[v]["rmse_vx"])
+        for v, r in sorted(eval_results.items()):
+            mark = " ← best (RMSE_vx 最小)" if v == best else ""
+            print(f"  {v:>6}  {r['rmse_vx']:>10.4f}  {r['rmse_yaw']:>10.4f}{mark}")
+        print(f"\n=> 採用推奨: alive={best}")
+    else:
+        print("  (--auto_eval なし: TensorBoard で報酬曲線を確認)")
+
     print(f"\nTensorBoard: tensorboard --logdir {SCRIPT_DIR}/checkpoints --port 6006")
     print("=" * 60)
 

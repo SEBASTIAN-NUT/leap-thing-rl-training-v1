@@ -23,6 +23,11 @@ from . import base
 
 USE_MOTOR_SPEED_LIMITS = True
 
+# Rotation joints excluded from policy (ROM too limited for locomotion).
+# if_rot=1, mf_rot=5, rf_rot=9, th_axl=13 in the 16-DOF actuator list.
+_ROT_JOINT_IDX = [1, 5, 9, 13]
+_FREE_JOINT_IDX = [0, 2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15]  # 12 DOF
+
 
 def default_config() -> config_dict.ConfigDict:
     return config_dict.create(
@@ -33,6 +38,7 @@ def default_config() -> config_dict.ConfigDict:
         action_scale=0.25,
         dof_vel_scale=0.05,
         history_len=0,
+    fix_rot_joints=False,
         soft_joint_pos_limit_factor=0.95,
         max_motor_velocity=5.24,  # rad/s
         noise_config=config_dict.create(
@@ -109,7 +115,12 @@ class Joystick(base.OpenDuckMiniV2Env):
         self._soft_lowers = c - 0.5 * r * self._config.soft_joint_pos_limit_factor
         self._soft_uppers = c + 0.5 * r * self._config.soft_joint_pos_limit_factor
 
-        self._actuators = self._mj_model.nu  # 16 (4 joints × 4 fingers)
+        self._actuators = self._mj_model.nu  # 16 (4 joints × 4 fingers, sim ctrl)
+        if self._config.fix_rot_joints:
+            self._free_joint_idx = jp.array(_FREE_JOINT_IDX)
+        else:
+            self._free_joint_idx = jp.arange(self._actuators)
+        self._n_actions = self._free_joint_idx.shape[0]
 
         # Geom IDs: floor and the 4 fingertips used as feet (position lookup,
         # e.g. swing_peak height tracking -- not used for contact detection).
@@ -210,9 +221,9 @@ class Joystick(base.OpenDuckMiniV2Env):
             # "step" value from the previous call's returned state).
             "step": jp.array(0),
             "command": cmd,                                                            # [vx, vy, yaw]
-            "last_act": jp.zeros(self.mjx_model.nu),
-            "last_last_act": jp.zeros(self.mjx_model.nu),
-            "last_last_last_act": jp.zeros(self.mjx_model.nu),
+            "last_act": jp.zeros(self._n_actions),
+            "last_last_act": jp.zeros(self._n_actions),
+            "last_last_last_act": jp.zeros(self._n_actions),
             "motor_targets": self._default_actuator,
             "feet_air_time": jp.zeros(4),                                             # one per fingertip
             "last_contact": jp.zeros(4, dtype=bool),
@@ -221,7 +232,7 @@ class Joystick(base.OpenDuckMiniV2Env):
             "push_step": jp.array(0),
             "push_interval_steps": push_interval_steps,
             "action_history": jp.zeros(
-                self._config.noise_config.action_max_delay * self._actuators
+                self._config.noise_config.action_max_delay * self._n_actions
             ),
         }
 
@@ -246,8 +257,8 @@ class Joystick(base.OpenDuckMiniV2Env):
 
         # --- Action delay ---
         action_history = (
-            jp.roll(state.info["action_history"], self._actuators)
-            .at[: self._actuators]
+            jp.roll(state.info["action_history"], self._n_actions)
+            .at[: self._n_actions]
             .set(action)
         )
         state.info["action_history"] = action_history
@@ -257,7 +268,7 @@ class Joystick(base.OpenDuckMiniV2Env):
             minval=self._config.noise_config.action_min_delay,
             maxval=self._config.noise_config.action_max_delay,
         )
-        action_w_delay = action_history.reshape((-1, self._actuators))[action_idx[0]]
+        action_w_delay = action_history.reshape((-1, self._n_actions))[action_idx[0]]
 
         # --- Random push disturbance ---
         push_theta = jax.random.uniform(push1_rng, maxval=2 * jp.pi)
@@ -283,7 +294,9 @@ class Joystick(base.OpenDuckMiniV2Env):
         state = state.replace(data=data)
 
         # --- Motor targets with optional velocity clipping ---
-        motor_targets = self._default_actuator + action_w_delay * self._config.action_scale
+        # Expand 12-dim policy action to 16-dim sim control (rot joints fixed at home)
+        full_delta = jp.zeros(self._actuators).at[self._free_joint_idx].set(action_w_delay)
+        motor_targets = self._default_actuator + full_delta * self._config.action_scale
 
         if USE_MOTOR_SPEED_LIMITS:
             prev_motor_targets = state.info["motor_targets"]
@@ -433,22 +446,22 @@ class Joystick(base.OpenDuckMiniV2Env):
             * self._config.noise_config.scales.linvel
         )
 
-        # --- Policy observation (112 dims, phase-1: IMU included) ---
+        # --- Policy observation (88-dim if fix_rot_joints else 112-dim) ---
         state = jp.hstack(
             [
-                info["command"],                                  # 3  [vx, vy, yaw]
-                noisy_joint_angles - self._default_actuator,     # 16
-                noisy_joint_vel * self._config.dof_vel_scale,    # 16
-                info["last_act"],                                 # 16
-                info["last_last_act"],                            # 16
-                info["last_last_last_act"],                       # 16
-                info["motor_targets"],                            # 16
-                contact,                                          # 4
-                noisy_gyro,                                       # 3
-                noisy_gravity,                                    # 3
-                noisy_linvel,                                     # 3
+                info["command"],                                                                         # 3
+                noisy_joint_angles[self._free_joint_idx] - self._default_actuator[self._free_joint_idx],  # n_actions
+                noisy_joint_vel[self._free_joint_idx] * self._config.dof_vel_scale,                     # n_actions
+                info["last_act"],                                                                        # n_actions
+                info["last_last_act"],                                                                   # n_actions
+                info["last_last_last_act"],                                                              # n_actions
+                info["motor_targets"][self._free_joint_idx],                                            # n_actions
+                contact,                                                                               # 4
+                noisy_gyro,                                                                            # 3
+                noisy_gravity,                                                                         # 3
+                noisy_linvel,                                                                          # 3
             ]
-        )  # total: 112
+        )  # total: 88 (fix_rot_joints=True) or 112 (fix_rot_joints=False)
 
         # --- Privileged observation (teacher; includes ground-truth sensor data) ---
         global_angvel = self.get_global_angvel(data)

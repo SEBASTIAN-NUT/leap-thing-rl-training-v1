@@ -160,7 +160,8 @@ def _set_stack_unlimited():
 
 
 def run_single(overrides: dict, output_dir: str, num_timesteps: int) -> bool:
-    jax_cache = __import__("tempfile").mkdtemp(prefix="jax_cache_")
+    jax_cache = str(Path(__file__).resolve().parent.parent / ".jax_cache")
+    Path(jax_cache).mkdir(exist_ok=True)
     env = {**__import__("os").environ, "JAX_COMPILATION_CACHE_DIR": jax_cache}
     cmd = [
         str(PYTHON), "-m", "thing_test.runner",
@@ -177,13 +178,25 @@ def run_single(overrides: dict, output_dir: str, num_timesteps: int) -> bool:
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             log.write(result.stdout)
             out = result.stdout.decode("utf-8", errors="replace")
+        if result.returncode != 0:
+            lines = out.splitlines()
+            print(f"  [FAILED] exit_code={result.returncode}  log={log_path}")
+            if len(lines) <= 60:
+                print(out)
+            else:
+                print("\n--- first 20 lines ---")
+                print("\n".join(lines[:20]))
+                print(f"\n... ({len(lines) - 40} lines omitted) ...\n")
+                print("--- last 20 lines ---")
+                print("\n".join(lines[-20:]))
+        else:
             print(out[-3000:] if len(out) > 3000 else out)
         return result.returncode == 0
     except Exception as e:
         print(f"  [ERROR] {e}")
         return False
     finally:
-        __import__("shutil").rmtree(jax_cache, ignore_errors=True)
+        pass
 
 
 def find_latest_onnx(output_dir: str):
