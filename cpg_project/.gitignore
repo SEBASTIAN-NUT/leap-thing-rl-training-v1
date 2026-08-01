@@ -1,0 +1,4 @@
+# Experiment outputs
+experiment_*/
+param_sweep_*/
+*.log
