@@ -1,0 +1,107 @@
+{
+  "timestamp": "2026-07-15 14:50:03",
+  "git_commit": "9a52444746877fb33c862b74ce43975698044e8d",
+  "git_dirty": false,
+  "cli_args": {
+    "output_dir": "checkpoints/p3_alive_1p0_20260715_144958",
+    "num_timesteps": 150000000,
+    "num_envs": null,
+    "env": "joystick",
+    "task": "flat_terrain",
+    "restore_checkpoint_path": null,
+    "config_overrides": "{\"reward_config.scales.alive\": 1.0, \"reward_config.scales.tracking_lin_vel\": 3.0, \"reward_config.scales.tracking_ang_vel\": 1.0, \"reward_config.tracking_sigma_lin\": 0.025, \"reward_config.tracking_sigma_ang\": 2.0}"
+  },
+  "obs": {
+    "actor_dim": 112,
+    "privileged_dim": 184,
+    "imu_in_actor": true,
+    "actor_components": "command(3)+noisy_joint_angle(16)+noisy_joint_vel(16)+last_act(16)+last_last_act(16)+last_last_last_act(16)+motor_targets(16)+contact(4)+noisy_gyro(3)+noisy_gravity(3)+noisy_linvel(3)"
+  },
+  "env_config": {
+    "action_repeat": 1,
+    "action_scale": 0.25,
+    "command_config": {
+      "a": [
+        1.5,
+        0.8,
+        1.2
+      ],
+      "b": [
+        0.9,
+        0.25,
+        0.5
+      ]
+    },
+    "ctrl_dt": 0.02,
+    "dof_vel_scale": 0.05,
+    "episode_length": 1000,
+    "history_len": 0,
+    "max_motor_velocity": 5.24,
+    "noise_config": {
+      "action_max_delay": 3,
+      "action_min_delay": 0,
+      "level": 1.0,
+      "scales": {
+        "accelerometer": 0.05,
+        "gravity": 0.05,
+        "gyro": 0.2,
+        "joint_pos": 0.03,
+        "joint_vel": 1.5,
+        "linvel": 0.1
+      }
+    },
+    "push_config": {
+      "enable": true,
+      "interval_range": [
+        5.0,
+        10.0
+      ],
+      "magnitude_range": [
+        0.1,
+        1.0
+      ]
+    },
+    "reward_config": {
+      "scales": {
+        "action_rate": 0.0,
+        "alive": 1.0,
+        "ang_vel_xy": 0.0,
+        "dof_pos_limits": 0.0,
+        "energy": 0.0,
+        "feet_air_time": 0.0,
+        "lin_vel_z": 0.0,
+        "orientation": 0.0,
+        "pose": 0.0,
+        "stand_still": 0.0,
+        "termination": 0.0,
+        "torques": 0.0,
+        "tracking_ang_vel": 0.5,
+        "tracking_lin_vel": 1.5
+      },
+      "tracking_sigma_ang": 0.25,
+      "tracking_sigma_lin": 0.01
+    },
+    "sim_dt": 0.002,
+    "soft_joint_pos_limit_factor": 0.95
+  },
+  "ppo_training_params": {
+    "action_repeat": 1,
+    "batch_size": 256,
+    "clipping_epsilon": 0.2,
+    "discounting": 0.97,
+    "entropy_cost": 0.01,
+    "episode_length": 1000,
+    "learning_rate": 0.0003,
+    "max_grad_norm": 1.0,
+    "normalize_observations": true,
+    "num_envs": 8192,
+    "num_evals": 15,
+    "num_minibatches": 32,
+    "num_resets_per_eval": 10,
+    "num_timesteps": 150000000,
+    "num_updates_per_batch": 4,
+    "reward_scaling": 1.0,
+    "unroll_length": 20,
+    "run_evals": true
+  }
+}

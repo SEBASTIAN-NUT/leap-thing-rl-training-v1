@@ -262,7 +262,7 @@ def main():
     else:
         print(f"[WARN] {results_dir}/ に JSON が見つかりません")
 
-    csv_files = [Path(args.csv)] if args.csv else sorted(results_dir.glob("*.csv"))
+    csv_files = [Path(args.csv)] if args.csv else [p for p in sorted(results_dir.glob("*.csv")) if p.stem != "tracking_comparison"]
     if csv_files:
         print(f"\n--- 時系列プロット ({len(csv_files)} 件) ---")
         for cp in csv_files:

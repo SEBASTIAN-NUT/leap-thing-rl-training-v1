@@ -1,0 +1,20 @@
+{
+  "name": "p3_alive_0p5",
+  "title": "Phase 3: alive=0.5",
+  "created_at": "2026-07-29T21:44:02.721232",
+  "parameters": {
+    "phase": "Phase 3 (alive sweep)",
+    "reward_config.scales.alive": 0.5,
+    "reward_config.scales.tracking_lin_vel": 3.0,
+    "reward_config.scales.tracking_ang_vel": 1.0,
+    "reward_config.tracking_sigma_lin": 0.025,
+    "reward_config.tracking_sigma_ang": 2.0
+  },
+  "notes": "生存報酬と追従のバランス最適化。完全統合パラメータ",
+  "evaluation": {
+    "csv_metrics": {
+      "vx_100_rmse": 0.15,
+      "yaw_100_rmse": 1.0002
+    }
+  }
+}

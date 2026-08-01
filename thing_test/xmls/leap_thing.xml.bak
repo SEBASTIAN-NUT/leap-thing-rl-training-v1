@@ -1,0 +1,412 @@
+<!-- LEAP Hand (Right-Handed)
+
+##################
+Naming Conventions
+##################
+
+* Finger phalanges: {bs, px, md, ds} denote {base, proximal, middle, distal} phalanges.
+* Thumb phalances: {mp, bs, px, ds} denote {metacarpal, base, proximal, distal} phalanges.
+
+|========|===========|
+| BODY # | BODY NAME |
+|========|===========|
+|  PALM  |   palm    |
+|========|===========|
+|   0    |   if_bs   |
+|   1    |   if_px   |
+|   2    |   if_md   |
+|   3    |   if_ds   |
+|========|===========|
+|   4    |   mf_bs   |
+|   5    |   mf_px   |
+|   6    |   mf_md   |
+|   7    |   mf_ds   |
+|========|===========|
+|   8    |   rf_bs   |
+|   9    |   rf_px   |
+|   10   |   rf_md   |
+|   11   |   rf_ds   |
+|========|===========|
+|   12   |   th_mp   |
+|   13   |   th_bs   |
+|   14   |   th_px   |
+|   15   |   th_ds   |
+|========|===========|
+
+* Finger joints: {mcp, rot, pip, dip} denote {metacarpophalangeal, rotational, proximal interphalangeal, distal interphalangeal} joints.
+* Thumb joints: {cmc, axl, mcp, ipl} denote {carpometacarpal, axial, metacarpophalangeal, interphalangeal} joints.
+
+|=========|============|
+| JOINT # | JOINT NAME |
+|=========|============|
+|    0    |   if_mcp   |
+|    1    |   if_rot   |
+|    2    |   if_pip   |
+|    3    |   if_dip   |
+|=========|============|
+|    4    |   mf_mcp   |
+|    5    |   mf_rot   |
+|    6    |   mf_pip   |
+|    7    |   mf_dip   |
+|=========|============|
+|    8    |   rf_mcp   |
+|    9    |   rf_rot   |
+|    10   |   rf_pip   |
+|    11   |   rf_dip   |
+|=========|============|
+|    12   |   th_cmc   |
+|    13   |   th_axl   |
+|    14   |   th_mcp   |
+|    15   |   th_ipl   |
+|=========|============|
+
+-->
+
+<mujoco model="leap_rh">
+  <compiler angle="radian" meshdir="./assets/"/>
+  <!-- solver/iterations/ls_iterations/tolerance were unset, so MuJoCo's
+       single-instance defaults applied: solver="Newton" (nested while_loop
+       with a convergence cond, plus an inner line-search while_loop+cond),
+       iterations=100, tolerance=1e-8. Under MJX's vmap(scan(vmap(pmap)))
+       training stack, tracing nested while_loop+cond combinations is a known
+       JAX pathology -- it can take a very long time (observed: 1hr+, still
+       stuck mid-trace) even though it would eventually finish. Switching to
+       CG with a small fixed iteration count and no inner line-search avoids
+       the nested-cond structure entirely, matching the lightweight settings
+       conventionally used by mjx_playground's other robots (e.g. Go1) for
+       training throughput, at the cost of some physical accuracy. -->
+  <!-- cone="pyramidal" replaces "elliptic": elliptic friction cones need a
+       nonlinear per-contact projection (more expensive per step and a
+       heavier op for JAX to batch/trace); pyramidal approximates the same
+       friction behavior with a cheaper linear cone and is what most
+       mjx_playground robots (e.g. Go1) use for training throughput. -->
+  <!-- integrator="Euler" + iterations=3 (berkeley_humanoid reference
+       exactly) was tested and made things WORSE for this model (qacc grew
+       to 1e8-1e9, vs 4.3e4 with the settings below) -- the reference robot's
+       mass/inertia/joint-damping distribution doesn't transfer directly.
+       Reverted to implicitfast + more iterations, keeping the solimp
+       softening below (which DID help). Lesson: copy reference settings as
+       a starting hypothesis, but verify each one empirically rather than
+       trusting the whole bundle. -->
+  <!-- noslip_iterations / multiccd / cone="elliptic" / impratio="10":
+       per EPFL LASA's crawling_hand project (epfl-lasa/crawling_hand
+       readme.md, "Grasping stability in MuJoCo" section), these are the
+       settings they found necessary for stable multi-finger contact in
+       MuJoCo. More directly analogous to our fingertip-contact problem
+       than go1/berkeley_humanoid's simple single-point foot contact
+       (which is what our previous solver settings were copied from). -->
+  <option integrator="implicitfast" solver="CG" iterations="20" ls_iterations="10"
+    noslip_iterations="5" cone="elliptic" impratio="10">
+    <flag eulerdamp="disable" multiccd="enable"/>
+  </option>
+
+  <!-- mesh assets -->
+  <asset>
+    <material name="black" rgba="0.2 0.2 0.2 1" />
+    <material name="white" rgba="1 1 1 1" />
+
+    <mesh name="palm" file="palm_right.obj"/>
+    <mesh name="base" file="base.obj"/>
+    <mesh name="proximal" file="proximal.obj"/>
+    <mesh name="medial" file="medial.obj"/>
+    <mesh name="distal" file="distal.obj"/>
+    <mesh name="tip" file="tip.obj"/>
+    <mesh name="thumb_base" file="thumb_base.obj"/>
+    <mesh name="thumb_proximal" file="thumb_proximal.obj"/>
+    <mesh name="thumb_distal" file="thumb_distal.obj"/>
+    <mesh name="thumb_tip" file="thumb_tip.obj"/>
+  </asset>
+
+  <!-- defaults -->
+  <default>
+    <!-- constraint stiffness -->
+    <!-- contype=0 conaffinity=0: disable all collisions by default; only fingertip classes override -->
+    <!-- solref timeconst was 0.0001s, far below sim_dt=0.002s. MuJoCo's
+         stability rule requires timeconst >= 2*sim_dt (>=0.004s) -- below
+         that, the contact correction is asking to happen faster than the
+         simulation timestep can resolve, which is a physically inconsistent
+         setup (can cause jitter/penetration/instability, and likely
+         prevents the reduced-iteration CG solver from converging on an
+         ill-conditioned constraint). 0.02s is MuJoCo's own default and is
+         safely above the 2*sim_dt minimum. -->
+    <!-- solimp matches mujoco_playground go1's foot-contact geom
+         (0.9 0.95 0.023) instead of near-rigid 0.999 0.999 0.001, which
+         exploded to qacc in the millions in repeated testing. solref left
+         at MuJoCo default (0.02 1), already matching reference. -->
+    <geom solimp="0.9 0.95 0.023" friction=".2" contype="0" conaffinity="0"/>
+
+    <!-- actuator defaults -->
+    <position kp="3.0" kv="0.01" />
+    <joint damping="0.03" frictionloss="0.001"/>
+
+    <!-- geom class defaults -->
+    <default class="visual">
+      <geom group="1" type="mesh" contype="0" conaffinity="0" density="0" material="black" />
+    </default>
+    <default class="collision">
+      <!-- collision=0: finger links do not collide (only tips touch the floor) -->
+      <geom material="black" contype="0" conaffinity="0" />
+    </default>
+    <default class="tip">
+      <!-- Visual only now (contype/conaffinity=0). Mesh-vs-plane collision (SAT)
+           on this mesh was pathologically slow to compile/autotune in MJX
+           (the per-fingertip convex-convex op blew up XLA autotuning even at
+           num_envs=256). Actual floor contact is now handled by a small
+           sphere primitive (see "tip_collision" below), which MJX collides
+           with the floor using a cheap closed-form sphere-vs-plane check. -->
+      <geom type="mesh" mesh="tip" friction="0.5" material="white" contype="0" conaffinity="0" />
+    </default>
+    <default class="thumb_tip">
+      <geom type="mesh" mesh="thumb_tip" friction="0.5" material="white" contype="0" conaffinity="0" />
+    </default>
+    <default class="tip_collision">
+      <!-- Sphere approximating the if/mf/rf fingertip pad, inscribed inside
+           the "tip" mesh's bounding box (computed via MuJoCo's geom_aabb:
+           center offset ~(0.0003,-0.00004,0.0010), half-extents
+           ~(0.0111,0.0122,0.0157); radius chosen smaller than the min
+           half-extent so the sphere stays inside the visual mesh). -->
+      <geom type="sphere" pos="-0.0010289 -0.0335930 0.0155582" size="0.009"
+        contype="1" conaffinity="1" group="3" rgba="1 1 1 0" />
+    </default>
+    <default class="palm_collision">
+      <geom type="sphere" size="0.025" contype="1" conaffinity="1" rgba="0.2 0.8 0.2 0.3"/>
+    </default>
+    <default class="thumb_tip_collision">
+      <!-- Same idea for th_tip (uses the separate "thumb_tip" mesh). -->
+      <geom type="sphere" pos="-0.0010558 -0.0455582 -0.0132785" size="0.009"
+        contype="1" conaffinity="1" group="3" rgba="1 1 1 0" />
+    </default>
+
+    <!-- joint class defaults -->
+    <default class="mcp">
+      <joint pos="0 0 0" axis="0 0 -1"
+        limited="true" range="-0.314 2.23" />
+      <position ctrlrange="-0.314 2.23" />
+    </default>
+    <default class="rot">
+      <joint pos="0 0 0" axis="0 0 -1"
+        limited="true" range="-1.047 1.047" />
+      <position ctrlrange="-1.047 1.047" />
+    </default>
+    <default class="pip">
+      <joint pos="0 0 0" axis="0 0 -1"
+        limited="true" range="-0.506 1.885" />
+      <position ctrlrange="-0.506 1.885" />
+    </default>
+    <default class="dip">
+      <joint pos="0 0 0" axis="0 0 -1"
+        limited="true" range="-0.366 2.042" />
+      <position ctrlrange="-0.366 2.042" />
+    </default>
+    <default class="thumb_cmc">
+      <joint pos="0 0 0" axis="0 0 -1"
+        limited="true" range="-0.349 2.094" />
+      <position ctrlrange="-0.349 2.094" />
+    </default>
+    <default class="thumb_axl">
+      <joint pos="0 0 0" axis="0 0 -1"
+        limited="true" range="-0.349 2.094" />
+      <position ctrlrange="-0.349 2.094" />
+    </default>
+    <default class="thumb_mcp">
+      <joint pos="0 0 0" axis="0 0 -1"
+        limited="true" range="-0.47 2.443" />
+      <position ctrlrange="-0.47 2.443" />
+    </default>
+    <default class="thumb_ipl">
+      <joint pos="0 0 0" axis="0 0 -1"
+        limited="true" range="-1.34 1.88" />
+      <position ctrlrange="-1.34 1.88" />
+    </default>
+  </default>
+
+  <!-- collision: only floor <-> fingertips (tip/thumb_tip class) are active.
+       All other geoms have contype=0 conaffinity=0 so MJX skips them entirely.
+       The <contact><exclude> block was removed: MJX still compiles excluded pairs,
+       so it does not reduce compilation time. -->
+
+
+  <!-- actuators -->
+  <actuator>
+    <!-- index -->
+    <position name="if_mcp_act" joint="if_mcp" class="mcp" />
+    <position name="if_rot_act" joint="if_rot" class="rot" />
+    <position name="if_pip_act" joint="if_pip" class="pip" />
+    <position name="if_dip_act" joint="if_dip" class="dip" />
+
+    <!-- middle -->
+    <position name="mf_mcp_act" joint="mf_mcp" class="mcp" />
+    <position name="mf_rot_act" joint="mf_rot" class="rot" />
+    <position name="mf_pip_act" joint="mf_pip" class="pip" />
+    <position name="mf_dip_act" joint="mf_dip" class="dip" />
+
+    <!-- ring -->
+    <position name="rf_mcp_act" joint="rf_mcp" class="mcp" />
+    <position name="rf_rot_act" joint="rf_rot" class="rot" />
+    <position name="rf_pip_act" joint="rf_pip" class="pip" />
+    <position name="rf_dip_act" joint="rf_dip" class="dip" />
+
+    <!-- thumb -->
+    <position name="th_cmc_act" joint="th_cmc" class="thumb_cmc" />
+    <position name="th_axl_act" joint="th_axl" class="thumb_axl" />
+    <position name="th_mcp_act" joint="th_mcp" class="thumb_mcp" />
+    <position name="th_ipl_act" joint="th_ipl" class="thumb_ipl" />
+  </actuator>
+
+  <!-- sensors -->
+  <sensor>
+    <!-- The 16 jointpos sensors that used to be here (one per actuator) were
+         removed: thing_walk.py never reads them (joint angles come directly
+         from qpos via get_actuator_joints_qpos in base.py), so they were pure
+         dead weight -- computed every physics step (part of the sensor_acc
+         cost seen during profiling) but never used. Kept: IMU-derived
+         sensors (gyro/accel/gravity/linvel/angvel, all on the "imu" site)
+         and the fingertip-floor contact ("tactile") sensors below. -->
+    <gyro          name="imu_gyro"    site="imu"/>
+    <accelerometer name="imu_acc"     site="imu"/>
+    <framezaxis    name="upvector"    objtype="site" objname="imu"/>   <!-- gravity代替 -->
+    <velocimeter   name="local_linvel" site="imu"/>
+    <framelinvel   name="global_linvel" objtype="site" objname="imu"/>
+    <frameangvel   name="global_angvel" objtype="site" objname="imu"/>
+
+    <contact name="if_tip_collision_floor_found" geom1="if_tip_collision" geom2="floor" reduce="mindist" num="1" data="found"/>
+    <contact name="mf_tip_collision_floor_found" geom1="mf_tip_collision" geom2="floor" reduce="mindist" num="1" data="found"/>
+    <contact name="rf_tip_collision_floor_found" geom1="rf_tip_collision" geom2="floor" reduce="mindist" num="1" data="found"/>
+    <contact name="th_tip_collision_floor_found" geom1="th_tip_collision" geom2="floor" reduce="mindist" num="1" data="found"/>
+    <contact name="palm_collision_floor_found" geom1="palm_floor_pad" geom2="floor" reduce="mindist" num="1" data="found"/>
+  </sensor>
+
+  <worldbody>
+    <body name="palm" pos="0 0 0.1" quat="0 1 0 0">
+
+      <freejoint name="floating_base"/>
+      <site name="imu" pos="0 0 0" size="0.01"/>
+
+      <!-- palm -->
+      <inertial pos="-0.049542 -0.042914 -0.010227" quat="0.565586 0.427629 -0.574956 0.408254" mass="0.237" diaginertia="0.000407345 0.000304759 0.000180736"/>
+      <geom name="palm_visual" pos="-0.02 0.02575 -0.0347" quat="1 0 0 0" class="visual" mesh="palm"/>
+
+      <!-- flat box on palm face: stable floor contact support (world z = palm_z - 0.034) -->
+      <geom name="palm_floor_pad" type="box" size="0.040 0.055 0.002"
+            pos="-0.040 -0.010 -0.034" contype="1" conaffinity="1" rgba="0 0 0 0"/>
+
+
+      <!-- index -->
+      <body name="if_bs" pos="-0.007 0.023 -0.0187" quat="0.500003 0.5 0.5 -0.499997">
+        <inertial pos="-0.022516 0.033882 0.016359" quat="0.388092 0.677951 -0.247713 0.573067" mass="0.044" diaginertia="1.74972e-05 1.61504e-05 7.21342e-06"/>
+        <joint name="if_mcp" class="mcp"/>
+        <geom name="if_bs_visual" pos="0.0084 0.0077 0.01465" quat="1 0 0 0" class="visual" mesh="base"/>
+
+        <body name="if_px" pos="-0.0122 0.0381 0.0145" quat="0.500003 -0.5 -0.499997 0.5">
+          <inertial pos="0.0075 -0.0002 -0.011" quat="0 0.707107 0 0.707107" mass="0.032" diaginertia="4.8853e-06 4.3733e-06 3.0933e-06"/>
+          <joint name="if_rot" class="rot"/>
+          <geom name="if_px_visual" pos="0.0096 0.0002 0.0007" quat="0.500003 -0.5 -0.5 -0.499997" class="visual" mesh="proximal"/>
+
+          <body name="if_md" pos="0.015 0.0143 -0.013" quat="0.500003 0.5 -0.5 0.499997">
+            <inertial pos="0.0054215 -0.029148 0.015" quat="0.687228 0.687228 0.166487 0.166487" mass="0.037" diaginertia="8.28004e-06 8.1598e-06 5.39516e-06"/>
+            <joint name="if_pip" class="pip"/>
+            <geom name="if_md_visual" pos="0.0211 -0.0084 0.0097" quat="2.67949e-08 -1 0 0" class="visual" mesh="medial"/>
+
+            <body name="if_ds" pos="0 -0.0361 0.0002">
+              <inertial pos="-0.0008794 -0.027019 0.014594" quat="0.702905 0.710643 -0.0212937 -0.0214203" mass="0.016" diaginertia="3.71863e-06 3.02396e-06 1.6518e-06"/>
+              <joint name="if_dip" class="dip"/>
+              <geom name="if_ds_visual" pos="0.0132 -0.0061 0.0144" quat="2.67949e-08 1 0 0" class="visual" mesh="distal"/>
+
+              <geom name="if_tip" class="tip"/>
+              <geom name="if_tip_collision" class="tip_collision"/>
+            </body>
+
+          </body>
+        </body>
+      </body>  <!-- index -->
+
+      <!-- middle -->
+      <body name="mf_bs" pos="-0.0071 -0.0224 -0.0187" quat="0.500003 0.5 0.5 -0.499997">
+        <inertial pos="-0.022516 0.033882 0.016359" quat="0.388092 0.677951 -0.247713 0.573067" mass="0.044" diaginertia="1.74972e-05 1.61504e-05 7.21342e-06"/>
+        <joint name="mf_mcp" class="mcp"/>
+        <geom name="mf_bs_visual" pos="0.0084 0.0077 0.01465" quat="1 0 0 0" class="visual" mesh="base"/>
+
+        <body name="mf_px" pos="-0.0122 0.0381 0.0145" quat="0.500003 -0.5 -0.499997 0.5">
+          <inertial pos="0.0075 -0.0002 -0.011" quat="0 0.707107 0 0.707107" mass="0.032" diaginertia="4.8853e-06 4.3733e-06 3.0933e-06"/>
+          <joint name="mf_rot" class="rot"/>
+          <geom name="mf_px_visual" pos="0.0096 0.0003 0.0007" quat="0.500003 -0.5 -0.5 -0.499997" class="visual" mesh="proximal"/>
+
+          <body name="mf_md" pos="0.015 0.0143 -0.013" quat="0.500003 0.5 -0.5 0.499997">
+            <inertial pos="0.0054215 -0.029148 0.015" quat="0.687228 0.687228 0.166487 0.166487" mass="0.037" diaginertia="8.28004e-06 8.1598e-06 5.39516e-06"/>
+            <joint name="mf_pip" class="pip"/>
+            <geom name="mf_md_visual" pos="0.0211 -0.0084 0.0097" quat="1.32679e-06 -1 0 0" class="visual" mesh="medial"/>
+
+            <body name="mf_ds" pos="0 -0.0361 0.0002">
+              <inertial pos="-0.0008794 -0.027019 0.014594" quat="0.702905 0.710643 -0.0212937 -0.0214203" mass="0.016" diaginertia="3.71863e-06 3.02396e-06 1.6518e-06"/>
+              <joint name="mf_dip" class="dip"/>
+              <geom name="mf_ds_visual" pos="0.0132 -0.0061 0.0145" quat="1.32679e-06 1 0 0" class="visual" mesh="distal"/>
+
+              <geom name="mf_tip" class="tip"/>
+              <geom name="mf_tip_collision" class="tip_collision"/>
+            </body>
+
+          </body>
+        </body>
+      </body>  <!-- middle -->
+
+      <!-- ring -->
+      <body name="rf_bs" pos="-0.00709 -0.0678 -0.0187" quat="0.500003 0.5 0.5 -0.499997">
+        <inertial pos="-0.022516 0.033882 0.016359" quat="0.388092 0.677951 -0.247713 0.573067" mass="0.044" diaginertia="1.74972e-05 1.61504e-05 7.21342e-06"/>
+        <joint name="rf_mcp" class="mcp"/>
+        <geom name="rf_bs_visual" pos="0.0084 0.0077 0.01465" quat="1 0 0 0" class="visual" mesh="base"/>
+
+        <body name="rf_px" pos="-0.0122 0.0381 0.0145" quat="0.500003 -0.5 -0.499997 0.5">
+          <inertial pos="0.0075 -0.0002 -0.011" quat="0 0.707107 0 0.707107" mass="0.032" diaginertia="4.8853e-06 4.3733e-06 3.0933e-06"/>
+          <joint name="rf_rot" class="rot"/>
+          <geom name="rf_px_visual" pos="0.0096 0.0003 0.0007" quat="0.500003 -0.5 -0.5 -0.499997" class="visual" mesh="proximal"/>
+
+          <body name="rf_md" pos="0.015 0.0143 -0.013" quat="0.500003 0.5 -0.5 0.499997">
+            <inertial pos="0.0054215 -0.029148 0.015" quat="0.687228 0.687228 0.166487 0.166487" mass="0.037" diaginertia="8.28004e-06 8.1598e-06 5.39516e-06"/>
+            <joint name="rf_pip" class="pip"/>
+            <geom name="rf_md_visual" pos="0.0211 -0.0084 0.0097" quat="1.32679e-06 -1 0 0" class="visual" mesh="medial"/>
+
+            <body name="rf_ds" pos="0 -0.03609 0.0002">
+              <inertial pos="-0.0008794 -0.027019 0.014594" quat="0.702905 0.710643 -0.0212937 -0.0214203" mass="0.016" diaginertia="3.71863e-06 3.02396e-06 1.6518e-06"/>
+              <joint name="rf_dip" class="dip"/>
+              <geom name="rf_ds_visual" pos="0.0132 -0.0061 0.0145" quat="1.32679e-06 1 0 0" class="visual" mesh="distal"/>
+
+              <geom name="rf_tip" class="tip"/>
+              <geom name="rf_tip_collision" class="tip_collision"/>
+            </body>
+
+          </body>
+        </body>
+      </body>  <!-- ring -->
+
+      <!-- thumb -->
+      <body name="th_mp" pos="-0.0693 -0.0012 -0.0216" quat="0.707109 0 0.707105 0">
+        <inertial pos="0.0075 -0.0002 -0.011" quat="0 0.707107 0 0.707107" mass="0.032" diaginertia="4.8853e-06 4.3733e-06 3.0933e-06"/>
+        <joint name="th_cmc" class="thumb_cmc"/>
+        <geom name="th_mp_visual" pos="-0.0053 0.0003 0.00078" quat="0.500003 -0.5 -0.5 -0.499997" class="visual" mesh="proximal"/>
+
+        <body name="th_bs" pos="0 0.0143 -0.013" quat="0.500003 0.5 -0.5 0.499997">
+          <inertial pos="0 0 -0.0070806" quat="0.707107 0.707107 0 0" mass="0.003" diaginertia="6.1932e-07 5.351e-07 2.1516e-07"/>
+          <joint name="th_axl" class="thumb_axl"/>
+          <geom name="th_bs_visual" pos="0.01196 0 -0.0158" quat="0.707109 0.707105 0 0" class="visual" mesh="thumb_base"/>
+
+          <body name="th_px" pos="0 0.0145 -0.017" quat="0.707109 -0.707105 0 0">
+            <inertial pos="-0.0020593 0.015912 -0.013733" quat="0.698518 0.697382 -0.104933 0.121324" mass="0.038" diaginertia="9.87104e-06 9.32653e-06 4.36203e-06"/>
+            <joint name="th_mcp" class="thumb_mcp"/>
+            <geom name="th_px_visual" pos="0.0439 0.0579 -0.0086" quat="1 0 0 0" class="visual" mesh="thumb_proximal"/>
+
+            <body name="th_ds" pos="0 0.0466 0.0002" quat="1.32679e-06 0 0 1">
+              <inertial pos="0.00096191 -0.024203 -0.014419" quat="0.35287 0.311272 -0.632839 0.614904" mass="0.049" diaginertia="2.08591e-05 2.0402e-05 4.71335e-06"/>
+              <joint name="th_ipl" class="thumb_ipl"/>
+              <geom name="th_ds_visual" pos="0.0625 0.0784 0.0489" quat="1 0 0 0" class="visual" mesh="thumb_distal"/>
+
+              <geom name="th_tip" class="thumb_tip"/>
+              <geom name="th_tip_collision" class="thumb_tip_collision"/>
+            </body>
+
+          </body>
+        </body>
+      </body>  <!-- thumb -->
+
+    </body>  <!-- palm -->
+  </worldbody>
+</mujoco>

@@ -1,0 +1,24 @@
+{
+  "name": "p3_alive_0p5",
+  "title": "Phase 3: alive=0.5",
+  "created_at": "2026-07-29T15:49:50.355574",
+  "parameters": {
+    "phase": "Phase 3 (alive sweep)",
+    "reward_config.scales.alive": 0.5,
+    "reward_config.scales.tracking_lin_vel": 3.0,
+    "reward_config.scales.tracking_ang_vel": 1.0,
+    "reward_config.tracking_sigma_lin": 0.025,
+    "reward_config.tracking_sigma_ang": 2.0
+  },
+  "notes": "生存報酬と追従のバランスが最適な alive スケール",
+  "evaluation": {
+    "eval_json": {},
+    "csv_metrics": {
+      "vx_100_rmse": 0.15,
+      "vx_75_rmse": 0.1125,
+      "vx_50_rmse": 0.075,
+      "vx_25_rmse": 0.0375,
+      "yaw_100_rmse": 1.0002
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "sigma_lin_0p025",
+  "title": "Phase 1: sigma_lin=0.025",
+  "created_at": "2026-07-29T21:44:02.716746",
+  "parameters": {
+    "phase": "Phase 1 (sigma_lin sweep)",
+    "reward_config.tracking_sigma_lin": 0.025,
+    "reward_config.tracking_sigma_ang": 1.0
+  },
+  "notes": "線速度追従の感度パラメータ最適化。vx 追従 RMSE=0.0515",
+  "evaluation": {
+    "csv_metrics": {
+      "vx_100_rmse": 0.1205,
+      "yaw_100_rmse": 0.4593
+    }
+  }
+}

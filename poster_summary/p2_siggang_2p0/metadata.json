@@ -1,0 +1,17 @@
+{
+  "name": "p2_siggang_2p0",
+  "title": "Phase 2: sigma_ang=2.0",
+  "created_at": "2026-07-29T21:44:02.719070",
+  "parameters": {
+    "phase": "Phase 2 (sigma_ang sweep)",
+    "reward_config.tracking_sigma_lin": 0.025,
+    "reward_config.tracking_sigma_ang": 2.0
+  },
+  "notes": "角速度追従の感度パラメータ最適化。yaw 追従 RMSE=0.4584",
+  "evaluation": {
+    "csv_metrics": {
+      "vx_100_rmse": 0.1728,
+      "yaw_100_rmse": 1.0744
+    }
+  }
+}

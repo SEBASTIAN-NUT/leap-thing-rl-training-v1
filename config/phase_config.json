@@ -1,0 +1,102 @@
+{
+  "environment": {
+    "mode": "auto",
+    "description": "LEAP Hand walk training analysis system - works on both local and remote"
+  },
+  "paths": {
+    "local_project_relative": ".",
+    "remote_project_dir": "/home/users/elemech/iizawa_workspace/thing_project",
+    "transfer_dir": "~/Desktop/iizawa/iizawa_workspace/transfer"
+  },
+  "data": {
+    "checkpoints_subdir": "checkpoints",
+    "eval_results_subdir": "eval_results",
+    "analysis_output_subdir": "analysis_output"
+  },
+  "phases": {
+    "phase1_baseline": {
+      "name": "Phase 1 (Baseline)",
+      "color": [46, 134, 171],
+      "scale_factors": {
+        "tracking_lin_vel": 1.5,
+        "tracking_ang_vel": 0.5,
+        "alive": 1.0,
+        "action_rate": 0.0,
+        "stand_still": 0.0,
+        "torques": 0.0
+      }
+    },
+    "phase2a_sigma_lin": {
+      "name": "Phase 2a (Sigma Lin)",
+      "color": [247, 127, 0],
+      "scale_factors": {
+        "tracking_lin_vel": 1.5,
+        "tracking_ang_vel": 0.5,
+        "alive": 1.0,
+        "action_rate": 0.0,
+        "stand_still": 0.0,
+        "torques": 0.0
+      }
+    },
+    "phase2b_sigma_ang": {
+      "name": "Phase 2b (Sigma Ang)",
+      "color": [255, 100, 100],
+      "scale_factors": {
+        "tracking_lin_vel": 1.5,
+        "tracking_ang_vel": 0.5,
+        "alive": 1.0,
+        "action_rate": 0.0,
+        "stand_still": 0.0,
+        "torques": 0.0
+      }
+    },
+    "phase3_alive": {
+      "name": "Phase 3 (Alive)",
+      "color": [230, 57, 70],
+      "scale_factors": {
+        "tracking_lin_vel": 3.0,
+        "tracking_ang_vel": 1.0,
+        "alive": 0.5,
+        "action_rate": 0.0,
+        "stand_still": 0.0,
+        "torques": 0.0
+      }
+    }
+  },
+  "checkpoints": {
+    "phase1_baseline": "sigma_lin_0.025_2026_07_06_194635",
+    "phase2a_sigma_lin": "p2a_sigma_lin_0p025_20260716_174736",
+    "phase2b_sigma_ang": "p2_siggang_rerun_2p0_20260708_192009",
+    "phase3_alive": "p3_alive_0p5_20260711_105838"
+  },
+  "eval_configs": {
+    "lin": {
+      "file": "sigma_lin_0p025.json",
+      "label": "lin"
+    },
+    "ang": {
+      "file": "p2_siggang_2p0.json",
+      "label": "ang"
+    },
+    "alive": {
+      "file": "p3_alive_0p5.json",
+      "label": "alive"
+    }
+  },
+  "graph_output": {
+    "directory": "04_poster_graphs",
+    "formats": {
+      "learning_curves": [
+        "total_reward_normalized.png",
+        "tracking_lin_vel_normalized.png",
+        "tracking_ang_vel_normalized.png",
+        "alive_normalized.png"
+      ],
+      "inference": [
+        "inference_rmse_comparison.png",
+        "inference_detail_vx_tracking_rate.png",
+        "inference_detail_yaw_tracking_rate.png"
+      ]
+    }
+  }
+}

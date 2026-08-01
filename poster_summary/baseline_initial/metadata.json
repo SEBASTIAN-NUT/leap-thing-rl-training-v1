@@ -1,0 +1,12 @@
+{
+  "name": "baseline_initial",
+  "title": "Baseline: Initial Default Parameters",
+  "parameters": {
+    "reward_config.scales.tracking_lin_vel": 1.5,
+    "reward_config.scales.tracking_ang_vel": 0.5,
+    "reward_config.scales.alive": 1.0,
+    "reward_config.tracking_sigma_lin": 0.01,
+    "reward_config.tracking_sigma_ang": 0.25
+  },
+  "notes": "Phase 2 開始時のデフォルト設定。学習曲線と推論性能は TensorBoard / 実験ログから確認"
+}
