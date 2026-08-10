@@ -80,24 +80,9 @@ Naming Conventions
        heavier op for JAX to batch/trace); pyramidal approximates the same
        friction behavior with a cheaper linear cone and is what most
        mjx_playground robots (e.g. Go1) use for training throughput. -->
-  <!-- integrator="Euler" + iterations=3 (berkeley_humanoid reference
-       exactly) was tested and made things WORSE for this model (qacc grew
-       to 1e8-1e9, vs 4.3e4 with the settings below) -- the reference robot's
-       mass/inertia/joint-damping distribution doesn't transfer directly.
-       Reverted to implicitfast + more iterations, keeping the solimp
-       softening below (which DID help). Lesson: copy reference settings as
-       a starting hypothesis, but verify each one empirically rather than
-       trusting the whole bundle. -->
-  <!-- noslip_iterations / multiccd / cone="elliptic" / impratio="10":
-       per EPFL LASA's crawling_hand project (epfl-lasa/crawling_hand
-       readme.md, "Grasping stability in MuJoCo" section), these are the
-       settings they found necessary for stable multi-finger contact in
-       MuJoCo. More directly analogous to our fingertip-contact problem
-       than go1/berkeley_humanoid's simple single-point foot contact
-       (which is what our previous solver settings were copied from). -->
-  <option integrator="implicitfast" solver="CG" iterations="20" ls_iterations="10"
-    noslip_iterations="5" cone="elliptic" impratio="10">
-    <flag eulerdamp="disable" multiccd="enable"/>
+  <option integrator="implicitfast" cone="pyramidal" impratio="100"
+    solver="CG" iterations="4" ls_iterations="4" tolerance="1e-6">
+    <flag eulerdamp="disable"/>
   </option>
 
   <!-- mesh assets -->
@@ -129,11 +114,7 @@ Naming Conventions
          prevents the reduced-iteration CG solver from converging on an
          ill-conditioned constraint). 0.02s is MuJoCo's own default and is
          safely above the 2*sim_dt minimum. -->
-    <!-- solimp matches mujoco_playground go1's foot-contact geom
-         (0.9 0.95 0.023) instead of near-rigid 0.999 0.999 0.001, which
-         exploded to qacc in the millions in repeated testing. solref left
-         at MuJoCo default (0.02 1), already matching reference. -->
-    <geom solimp="0.9 0.95 0.023" friction=".2" contype="0" conaffinity="0"/>
+    <geom solimp="0.999 0.999 0.001 0.0001 1" solref="0.02 1" friction=".2" contype="0" conaffinity="0"/>
 
     <!-- actuator defaults -->
     <position kp="3.0" kv="0.01" />
@@ -167,9 +148,6 @@ Naming Conventions
            half-extent so the sphere stays inside the visual mesh). -->
       <geom type="sphere" pos="-0.0010289 -0.0335930 0.0155582" size="0.009"
         contype="1" conaffinity="1" group="3" rgba="1 1 1 0" />
-    </default>
-    <default class="palm_collision">
-      <geom type="sphere" size="0.025" contype="1" conaffinity="1" rgba="0.2 0.8 0.2 0.3"/>
     </default>
     <default class="thumb_tip_collision">
       <!-- Same idea for th_tip (uses the separate "thumb_tip" mesh). -->
@@ -273,7 +251,6 @@ Naming Conventions
     <contact name="mf_tip_collision_floor_found" geom1="mf_tip_collision" geom2="floor" reduce="mindist" num="1" data="found"/>
     <contact name="rf_tip_collision_floor_found" geom1="rf_tip_collision" geom2="floor" reduce="mindist" num="1" data="found"/>
     <contact name="th_tip_collision_floor_found" geom1="th_tip_collision" geom2="floor" reduce="mindist" num="1" data="found"/>
-    <contact name="palm_collision_floor_found" geom1="palm_collision" geom2="floor" reduce="mindist" num="1" data="found"/>
   </sensor>
 
   <worldbody>
@@ -285,7 +262,6 @@ Naming Conventions
       <!-- palm -->
       <inertial pos="-0.049542 -0.042914 -0.010227" quat="0.565586 0.427629 -0.574956 0.408254" mass="0.237" diaginertia="0.000407345 0.000304759 0.000180736"/>
       <geom name="palm_visual" pos="-0.02 0.02575 -0.0347" quat="1 0 0 0" class="visual" mesh="palm"/>
-      <geom name="palm_collision" class="palm_collision" pos="-0.02 0.02575 -0.0347"/>
 
       <!-- index -->
       <body name="if_bs" pos="-0.007 0.023 -0.0187" quat="0.500003 0.5 0.5 -0.499997">
