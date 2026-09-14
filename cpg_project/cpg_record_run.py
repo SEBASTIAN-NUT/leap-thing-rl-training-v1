@@ -31,7 +31,7 @@ try:
 except ImportError:
     HAVE_VIDEO = False
 
-XML = "models/leap_thing_cpg.xml"
+XML = "../thing_test/xmls/leap_thing_cpg.xml"
 
 FINGER_CTRL = [(0, 2), (4, 6), (8, 10)]   # if, mf, rf
 REF_MCP_JOINT = "if_mcp"

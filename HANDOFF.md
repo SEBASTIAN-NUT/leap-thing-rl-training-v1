@@ -24,7 +24,7 @@
     │   ├── common/             ← 共通ユーティリティ
     │   └── check_command_response.py  ← 推論評価スクリプト（CCR）
     ├── experiments/            ← フェーズ別実験スクリプト
-    ├── checkpoints/            ← 全フェーズのチェックポイント（ONNX + run_config.json）
+    ├── training/            <- 学習エントリ + 実験スクリプト
     ├── eval_results/           ← CCR評価結果（CSV）
     ├── analysis_output/        ← 報酬曲線CSV・PNG
     ├── poster_summary/         ← ポスター用動画・サマリー

@@ -1,0 +1,40 @@
+{
+  "vx_sweep": [
+    {
+      "cmd_vx": 0.0,
+      "meas_vx": 0.068
+    },
+    {
+      "cmd_vx": -0.15,
+      "meas_vx": -0.0
+    },
+    {
+      "cmd_vx": -0.112,
+      "meas_vx": 0.0
+    },
+    {
+      "cmd_vx": -0.075,
+      "meas_vx": -0.0
+    },
+    {
+      "cmd_vx": -0.037,
+      "meas_vx": 0.0
+    },
+    {
+      "cmd_vx": 0.037,
+      "meas_vx": 0.0
+    },
+    {
+      "cmd_vx": 0.075,
+      "meas_vx": -0.0
+    },
+    {
+      "cmd_vx": 0.112,
+      "meas_vx": 0.0
+    },
+    {
+      "cmd_vx": 0.15,
+      "meas_vx": -0.0
+    }
+  ]
+}

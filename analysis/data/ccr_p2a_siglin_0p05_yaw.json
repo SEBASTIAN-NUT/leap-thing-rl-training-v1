@@ -1,0 +1,40 @@
+{
+  "yaw_sweep": [
+    {
+      "cmd_yaw": 0.0,
+      "meas_yaw": -0.291
+    },
+    {
+      "cmd_yaw": -1.0,
+      "meas_yaw": -0.009
+    },
+    {
+      "cmd_yaw": -0.75,
+      "meas_yaw": 0.001
+    },
+    {
+      "cmd_yaw": -0.5,
+      "meas_yaw": 0.002
+    },
+    {
+      "cmd_yaw": -0.25,
+      "meas_yaw": 0.002
+    },
+    {
+      "cmd_yaw": 0.25,
+      "meas_yaw": 0.007
+    },
+    {
+      "cmd_yaw": 0.5,
+      "meas_yaw": 0.006
+    },
+    {
+      "cmd_yaw": 0.75,
+      "meas_yaw": 0.013
+    },
+    {
+      "cmd_yaw": 1.0,
+      "meas_yaw": 0.008
+    }
+  ]
+}
